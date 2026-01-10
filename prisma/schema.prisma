@@ -1,0 +1,180 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  lastName  String
+  phone     String   @unique
+  password  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patient   Patient?
+  doctor    Doctor?
+}
+
+model Patient {
+  id              String          @id @default(uuid())
+  userId          String          @unique
+  user            User            @relation(fields: [userId], references: [id])
+  gender          String?
+  birthDate       DateTime?
+  allergies       String[]
+  medications     String[]
+  medicalHistory  String[]
+  familyHistory   String[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  clinicHistories ClinicHistory[]
+  appointments    Appointment[]
+}
+
+model Doctor {
+  id              String          @id @default(uuid())
+  userId          String          @unique
+  user            User            @relation(fields: [userId], references: [id])
+  specialtyId     String
+  specialty       Specialty       @relation(fields: [specialtyId], references: [id])
+  licenseNumber   String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  clinicHistories ClinicHistory[]
+  conversations   Conversation[]
+  appointments    Appointment[]
+}
+
+model Specialty {
+  id              String          @id @default(uuid())
+  name            String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  doctors         Doctor[]
+  clinicHistories ClinicHistory[]
+  appointments    Appointment[]
+}
+
+model Appointment {
+  id               String         @id @default(uuid())
+  patientId        String
+  patient          Patient        @relation(fields: [patientId], references: [id])
+  doctorId         String
+  doctor           Doctor         @relation(fields: [doctorId], references: [id])
+  startAppointment DateTime
+  endAppointment   DateTime
+  status           String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  specialtyId      String
+  specialty        Specialty      @relation(fields: [specialtyId], references: [id])
+  clinicHistory    ClinicHistory?
+}
+
+model ClinicHistory {
+  id                 String         @id @default(uuid())
+  patientId          String
+  patient            Patient        @relation(fields: [patientId], references: [id])
+  doctorId           String
+  doctor             Doctor         @relation(fields: [doctorId], references: [id])
+  consultationReason String
+  symptoms           String[]
+  treatment          String
+  diagnostics        Diagnostic[]
+  physicalExams      PhysicalExam[]
+  vitalSigns         VitalSign[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  specialtyId        String
+  specialty          Specialty      @relation(fields: [specialtyId], references: [id])
+  prescription       Prescription?
+  appointment        Appointment    @relation(fields: [appointmentId], references: [id])
+  appointmentId      String         @unique
+}
+
+model Conversation {
+  id           String    @id @default(uuid())
+  model        String
+  systemPrompt String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  doctorId     String
+  doctor       Doctor    @relation(fields: [doctorId], references: [id])
+  messages     Message[]
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  content        String
+  role           String
+  tokenCount     Int
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  conversationId String?
+}
+
+model Diagnostic {
+  id              String         @id @default(uuid())
+  name            String
+  description     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  clinicHistory   ClinicHistory? @relation(fields: [clinicHistoryId], references: [id])
+  clinicHistoryId String?
+}
+
+model PhysicalExam {
+  id              String         @id @default(uuid())
+  name            String
+  description     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  clinicHistory   ClinicHistory? @relation(fields: [clinicHistoryId], references: [id])
+  clinicHistoryId String?
+}
+
+model VitalSign {
+  id              String         @id @default(uuid())
+  name            String
+  description     String?
+  value           String
+  unit            String
+  measurement     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  clinicHistory   ClinicHistory? @relation(fields: [clinicHistoryId], references: [id])
+  clinicHistoryId String?
+}
+
+model Prescription {
+  id                      String                   @id @default(uuid())
+  name                    String
+  description             String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  clinicHistory           ClinicHistory?           @relation(fields: [clinicHistoryId], references: [id])
+  clinicHistoryId         String?                  @unique
+  prescriptionMedications PrescriptionMedication[]
+}
+
+model PrescriptionMedication {
+  id                  String        @id @default(uuid())
+  name                String
+  description         String?
+  quantity            Int
+  unit                String
+  frequency           String
+  duration            String
+  indications         String
+  administrationRoute String
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  prescription        Prescription? @relation(fields: [prescriptionId], references: [id])
+  prescriptionId      String?
+}
