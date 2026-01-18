@@ -56,6 +56,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "baseline-browser-mapping": "^2.9.15",
     "dotenv": "^16.4.5",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
@@ -88,6 +89,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
+    }
   }
 }
