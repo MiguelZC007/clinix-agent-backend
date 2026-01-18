@@ -6,9 +6,19 @@ import { OpenaiModule } from './modules/openai/openai.module';
 import { UserModule } from './modules/user/user.module';
 import { PatientModule } from './modules/patient/patient.module';
 import { TwilioModule } from './modules/twilio/twilio.module';
+import { AppointmentModule } from './modules/appointment/appointment.module';
+import { ClinicHistoryModule } from './modules/clinic-history/clinic-history.module';
 
 @Module({
-  imports: [PrismaModule, OpenaiModule, UserModule, PatientModule, TwilioModule],
+  imports: [
+    PrismaModule,
+    OpenaiModule,
+    UserModule,
+    PatientModule,
+    TwilioModule,
+    AppointmentModule,
+    ClinicHistoryModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
