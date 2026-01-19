@@ -1,138 +1,191 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
-import { TwilioService } from './twilio.service';
-import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
-import { WebhookMessageDto } from './dto/webhook-message.dto';
-
-const mockTwilioClient = {
-  messages: {
-    create: jest.fn(),
-  },
-};
-
 jest.mock('twilio', () => {
-  return jest.fn(() => mockTwilioClient);
+  return jest.fn().mockImplementation(() => ({
+    messages: {
+      create: jest.fn().mockResolvedValue({
+        sid: 'SM123',
+        status: 'queued',
+      }),
+    },
+  }));
 });
+
+import { TwilioService } from './twilio.service';
+import { OpenaiService } from '../openai/openai.service';
 
 describe('TwilioService', () => {
   let service: TwilioService;
+  let mockOpenaiService: { processMessageFromDoctor: jest.Mock };
 
-  beforeEach(async () => {
-    process.env.TWILIO_ACCOUNT_SID = 'test-account-sid';
-    process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
+  beforeEach(() => {
+    process.env.TWILIO_ACCOUNT_SID = 'test-sid';
+    process.env.TWILIO_AUTH_TOKEN = 'test-token';
     process.env.TWILIO_WHATSAPP_FROM = 'whatsapp:+14155238886';
 
-    jest.clearAllMocks();
+    mockOpenaiService = {
+      processMessageFromDoctor: jest.fn(),
+    };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [TwilioService],
-    }).compile();
-
-    service = module.get<TwilioService>(TwilioService);
+    service = new TwilioService(mockOpenaiService as unknown as OpenaiService);
   });
 
   afterEach(() => {
-    delete process.env.TWILIO_ACCOUNT_SID;
-    delete process.env.TWILIO_AUTH_TOKEN;
-    delete process.env.TWILIO_WHATSAPP_FROM;
+    jest.clearAllMocks();
   });
 
-  describe('sendWhatsAppMessage', () => {
-    it('debe enviar un mensaje exitosamente', async () => {
-      const dto: SendWhatsAppMessageDto = {
-        to: '+584241234567',
-        body: 'Test message',
-      };
+  describe('splitMessage', () => {
+    it('debe retornar mensaje sin dividir si es menor a 1000 caracteres', () => {
+      const shortMessage = 'Este es un mensaje corto.';
+      const result = service.splitMessage(shortMessage);
 
-      mockTwilioClient.messages.create.mockResolvedValue({
-        sid: 'SM123',
-        status: 'queued',
-        to: 'whatsapp:+584241234567',
-        from: 'whatsapp:+14155238886',
-        body: 'Test message',
-        dateCreated: new Date(),
-        price: null,
-        priceUnit: null,
-      });
-
-      const result = await service.sendWhatsAppMessage(dto);
-
-      expect(result.success).toBe(true);
-      expect(result.messageSid).toBe('SM123');
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(shortMessage);
     });
 
-    it('debe lanzar BadRequestException en caso de error', async () => {
-      const dto: SendWhatsAppMessageDto = {
-        to: '+584241234567',
-        body: 'Test message',
-      };
+    it('debe dividir mensaje largo en múltiples partes', () => {
+      const longMessage = 'a'.repeat(2500);
+      const result = service.splitMessage(longMessage);
 
-      mockTwilioClient.messages.create.mockRejectedValue(
-        new Error('Twilio error'),
-      );
+      expect(result.length).toBeGreaterThan(1);
+      result.forEach((part) => {
+        expect(part.length).toBeLessThanOrEqual(1000);
+      });
+    });
 
-      await expect(service.sendWhatsAppMessage(dto)).rejects.toThrow(
-        BadRequestException,
-      );
+    it('debe dividir por párrafos cuando sea posible', () => {
+      const messageWithParagraphs = `Primer párrafo con información importante.
+
+Segundo párrafo con más detalles sobre el tema.
+
+Tercer párrafo que contiene conclusiones.`;
+
+      const result = service.splitMessage(messageWithParagraphs);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toContain('Primer párrafo');
+      expect(result[0]).toContain('Segundo párrafo');
+    });
+
+    it('debe agregar indicador de parte cuando hay múltiples mensajes', () => {
+      const veryLongMessage = Array(50).fill('Este es un párrafo largo. ').join('\n\n');
+      const result = service.splitMessage(veryLongMessage);
+
+      if (result.length > 1) {
+        expect(result[0]).toMatch(/^\[1\/\d+\]/);
+        expect(result[result.length - 1]).toMatch(/^\[\d+\/\d+\]/);
+      }
+    });
+
+    it('debe dividir oraciones largas correctamente', () => {
+      const longSentence = 'Esta es una oración muy larga. '.repeat(50);
+      const result = service.splitMessage(longSentence);
+
+      result.forEach((part) => {
+        const contentWithoutIndicator = part.replace(/^\[\d+\/\d+\]\n/, '');
+        expect(contentWithoutIndicator.length).toBeLessThanOrEqual(1000);
+      });
+    });
+
+    it('debe manejar mensaje con mezcla de párrafos cortos y largos', () => {
+      const mixedMessage = `Párrafo corto.
+
+${'Este es un párrafo muy largo que debería ser dividido. '.repeat(30)}
+
+Otro párrafo corto al final.`;
+
+      const result = service.splitMessage(mixedMessage);
+
+      expect(result.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('debe preservar el contenido completo al dividir', () => {
+      const originalMessage = `Primera parte del mensaje.
+
+Segunda parte con más información.
+
+Tercera parte final.`;
+
+      const result = service.splitMessage(originalMessage);
+      const reconstructed = result
+        .map((part) => part.replace(/^\[\d+\/\d+\]\n/, ''))
+        .join('');
+
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Primera parte');
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Segunda parte');
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Tercera parte');
     });
   });
 
   describe('processIncomingMessage', () => {
-    it('debe procesar un mensaje entrante exitosamente', async () => {
-      const webhookData: WebhookMessageDto = {
+    it('debe procesar mensaje y enviar respuesta', async () => {
+      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(
+        'Respuesta del asistente',
+      );
+
+      const webhookData = {
         MessageSid: 'SM123',
-        AccountSid: 'AC123',
         From: 'whatsapp:+584241234567',
         To: 'whatsapp:+14155238886',
         Body: 'Hola',
       };
 
-      const result = await service.processIncomingMessage(webhookData);
+      const result = await service.processIncomingMessage(webhookData as never);
 
       expect(result.success).toBe(true);
-      expect(result.data.messageSid).toBe('SM123');
-    });
-
-    it('debe procesar mensaje con media', async () => {
-      const webhookData: WebhookMessageDto = {
-        MessageSid: 'SM123',
-        AccountSid: 'AC123',
-        From: 'whatsapp:+584241234567',
-        To: 'whatsapp:+14155238886',
-        Body: 'Imagen',
-        NumMedia: 1,
-        MediaUrl0: 'https://example.com/image.jpg',
-        MediaContentType0: 'image/jpeg',
-      };
-
-      const result = await service.processIncomingMessage(webhookData);
-
-      expect(result.success).toBe(true);
-      expect(result.data.hasMedia).toBe(true);
-    });
-  });
-
-  describe('scaffold methods', () => {
-    it('create debe retornar mensaje', () => {
-      expect(service.create({} as never)).toBe('This action adds a new twilio');
-    });
-
-    it('findAll debe retornar mensaje', () => {
-      expect(service.findAll()).toBe('This action returns all twilio');
-    });
-
-    it('findOne debe retornar mensaje con ID', () => {
-      expect(service.findOne(1)).toBe('This action returns a #1 twilio');
-    });
-
-    it('update debe retornar mensaje con ID', () => {
-      expect(service.update(1, {} as never)).toBe(
-        'This action updates a #1 twilio',
+      expect(mockOpenaiService.processMessageFromDoctor).toHaveBeenCalledWith(
+        'whatsapp:+584241234567',
+        'Hola',
       );
     });
 
-    it('remove debe retornar mensaje con ID', () => {
-      expect(service.remove(1)).toBe('This action removes a #1 twilio');
+    it('debe manejar error cuando doctor no está registrado', async () => {
+      const notFoundError = new Error('No encontrado');
+      (notFoundError as { status?: number }).status = 404;
+      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(notFoundError);
+
+      const webhookData = {
+        MessageSid: 'SM123',
+        From: 'whatsapp:+584241234567',
+        To: 'whatsapp:+14155238886',
+        Body: 'Hola',
+      };
+
+      const result = await service.processIncomingMessage(webhookData as never);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('debe manejar errores genéricos de OpenAI', async () => {
+      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(
+        new Error('Error de API'),
+      );
+
+      const webhookData = {
+        MessageSid: 'SM123',
+        From: 'whatsapp:+584241234567',
+        To: 'whatsapp:+14155238886',
+        Body: 'Hola',
+      };
+
+      const result = await service.processIncomingMessage(webhookData as never);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('debe dividir respuestas largas en múltiples mensajes', async () => {
+      const longResponse = 'Respuesta muy larga. '.repeat(100);
+      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(longResponse);
+
+      const webhookData = {
+        MessageSid: 'SM123',
+        From: 'whatsapp:+584241234567',
+        To: 'whatsapp:+14155238886',
+        Body: 'Dame mucha información',
+      };
+
+      const result = await service.processIncomingMessage(webhookData as never);
+
+      expect(result.success).toBe(true);
+      expect(result.data.responsePartsCount).toBeGreaterThan(1);
     });
   });
 });

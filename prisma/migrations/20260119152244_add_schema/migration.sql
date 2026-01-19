@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Conversation" ADD COLUMN     "isActive" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN     "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "summary" TEXT;
