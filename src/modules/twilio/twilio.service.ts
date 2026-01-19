@@ -182,6 +182,10 @@ export class TwilioService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  async sendDirectMessage(to: string, body: string) {
+    return this.sendWhatsAppMessage(to, body);
+  }
+
   async getMessageStatus(messageSid: string) {
     try {
       const message = await this.twilioClient.messages(messageSid).fetch();

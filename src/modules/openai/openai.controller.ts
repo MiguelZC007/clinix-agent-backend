@@ -1,24 +1,34 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-  Req,
-} from '@nestjs/common';
+import { Controller, Post, Body } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { OpenaiService } from './openai.service';
-import { CreateOpenaiDto } from './dto/create-openai.dto';
-import { UpdateOpenaiDto } from './dto/update-openai.dto';
-import { MessageOpenaiDto } from './dto/message-openai.dto';
 
+interface ProcessMessageDto {
+  phone: string;
+  message: string;
+}
+
+@ApiTags('OpenAI')
 @Controller('openai')
 export class OpenaiController {
   constructor(private readonly openaiService: OpenaiService) {}
 
-  @Post()
-  create(@Body() data: MessageOpenaiDto, @Req() req: Request) {
-    return this.openaiService.conversation('', data);
+  @Post('message')
+  @ApiOperation({ summary: 'Procesar mensaje del médico via API' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        phone: { type: 'string', example: '+584121234567' },
+        message: { type: 'string', example: 'Hola, necesito registrar un paciente' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Mensaje procesado correctamente' })
+  async processMessage(@Body() data: ProcessMessageDto) {
+    const response = await this.openaiService.processMessageFromDoctor(
+      data.phone,
+      data.message,
+    );
+    return { success: true, response };
   }
 }

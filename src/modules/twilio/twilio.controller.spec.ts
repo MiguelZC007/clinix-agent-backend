@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TwilioController } from './twilio.controller';
 import { TwilioService } from './twilio.service';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
+import type { Request, Response } from 'express';
 
 describe('TwilioController', () => {
   let controller: TwilioController;
@@ -9,14 +10,9 @@ describe('TwilioController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      sendWhatsAppMessage: jest.fn(),
+      sendDirectMessage: jest.fn(),
       processIncomingMessage: jest.fn(),
       getMessageStatus: jest.fn(),
-      create: jest.fn(),
-      findAll: jest.fn(),
-      findOne: jest.fn(),
-      update: jest.fn(),
-      remove: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -33,7 +29,7 @@ describe('TwilioController', () => {
   });
 
   describe('sendWhatsAppMessage', () => {
-    it('debe llamar a twilioService.sendWhatsAppMessage', async () => {
+    it('debe llamar a twilioService.sendDirectMessage', async () => {
       const dto: SendWhatsAppMessageDto = {
         to: '+584241234567',
         body: 'Test message',
@@ -45,11 +41,11 @@ describe('TwilioController', () => {
         status: 'queued',
       };
 
-      service.sendWhatsAppMessage.mockResolvedValue(mockResponse as never);
+      service.sendDirectMessage.mockResolvedValue(mockResponse as never);
 
       const result = await controller.sendWhatsAppMessage(dto);
 
-      expect(service.sendWhatsAppMessage).toHaveBeenCalledWith(dto);
+      expect(service.sendDirectMessage).toHaveBeenCalledWith(dto.to, dto.body);
       expect(result).toEqual(mockResponse);
     });
   });
@@ -63,11 +59,11 @@ describe('TwilioController', () => {
         Body: 'Hola',
       };
 
-      const mockRequest = { body: webhookData } as never;
+      const mockRequest = { body: webhookData } as Request;
       const mockResponse = {
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
-      } as never;
+      } as unknown as Response;
 
       const processResult = {
         success: true,
@@ -90,11 +86,11 @@ describe('TwilioController', () => {
 
     it('debe manejar errores del webhook', async () => {
       const webhookData = {};
-      const mockRequest = { body: webhookData } as never;
+      const mockRequest = { body: webhookData } as Request;
       const mockResponse = {
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
-      } as never;
+      } as unknown as Response;
 
       service.processIncomingMessage.mockRejectedValue(new Error('Test error'));
 

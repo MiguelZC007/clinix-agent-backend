@@ -51,7 +51,10 @@ export class TwilioController {
   @ApiResponse({ status: 400, description: 'Error en los datos enviados' })
   @ApiResponse({ status: 500, description: 'Error interno del servidor' })
   async sendWhatsAppMessage(@Body() sendMessageDto: SendWhatsAppMessageDto) {
-    return await this.twilioService.sendWhatsAppMessage(sendMessageDto);
+    return await this.twilioService.sendDirectMessage(
+      sendMessageDto.to,
+      sendMessageDto.body,
+    );
   }
 
   @Post('webhook/whatsapp')

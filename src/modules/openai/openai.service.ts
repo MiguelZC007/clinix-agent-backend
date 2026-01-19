@@ -406,6 +406,9 @@ REGLAS ESTRICTAS:
   }
 
   private async sendChatCompletion(messages: ChatMessage[]): Promise<string> {
+    console.log(`\n🔵 [OpenAI API] Enviando solicitud a modelo: ${environment.OPENAI_MODEL}`);
+    console.log(`🔵 [OpenAI API] Total mensajes en contexto: ${messages.length}`);
+    
     const response = await this.openai.chat.completions.create({
       model: environment.OPENAI_MODEL,
       messages: messages.map((m) => ({
@@ -415,6 +418,10 @@ REGLAS ESTRICTAS:
       tools: openaiTools,
       tool_choice: 'auto',
     });
+
+    console.log(`🟢 [OpenAI API] Respuesta recibida - ID: ${response.id}`);
+    console.log(`🟢 [OpenAI API] Modelo usado: ${response.model}`);
+    console.log(`🟢 [OpenAI API] Tokens usados: ${response.usage?.total_tokens || 'N/A'}`);
 
     const assistantMessage = response.choices[0]?.message;
 

@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OpenaiController } from './openai.controller';
 import { OpenaiService } from './openai.service';
-import { MessageOpenaiDto } from './dto/message-openai.dto';
 
 describe('OpenaiController', () => {
   let controller: OpenaiController;
@@ -9,8 +8,7 @@ describe('OpenaiController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      conversation: jest.fn(),
-      sendMessage: jest.fn(),
+      processMessageFromDoctor: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -26,18 +24,20 @@ describe('OpenaiController', () => {
     jest.clearAllMocks();
   });
 
-  describe('create', () => {
-    it('debe llamar a openaiService.conversation', async () => {
-      const dto: MessageOpenaiDto = { message: 'Hola' };
-      const mockRequest = {} as Request;
-      const mockResponse = { id: 'response-id', output: [] };
+  describe('processMessage', () => {
+    it('debe llamar a openaiService.processMessageFromDoctor', async () => {
+      const dto = { phone: '+584121234567', message: 'Hola' };
+      const mockResponse = 'Respuesta del asistente';
 
-      service.conversation.mockResolvedValue(mockResponse as never);
+      service.processMessageFromDoctor.mockResolvedValue(mockResponse);
 
-      const result = await controller.create(dto, mockRequest);
+      const result = await controller.processMessage(dto);
 
-      expect(service.conversation).toHaveBeenCalledWith('', dto);
-      expect(result).toEqual(mockResponse);
+      expect(service.processMessageFromDoctor).toHaveBeenCalledWith(
+        dto.phone,
+        dto.message,
+      );
+      expect(result).toEqual({ success: true, response: mockResponse });
     });
   });
 });
