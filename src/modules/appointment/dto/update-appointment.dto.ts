@@ -9,7 +9,7 @@ export class UpdateAppointmentDto {
     required: false,
   })
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, { message: 'La fecha de inicio debe tener formato ISO 8601' })
   startAppointment?: string;
 
   @ApiProperty({
@@ -18,7 +18,7 @@ export class UpdateAppointmentDto {
     required: false,
   })
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, { message: 'La fecha de fin debe tener formato ISO 8601' })
   endAppointment?: string;
 
   @ApiProperty({
@@ -28,6 +28,8 @@ export class UpdateAppointmentDto {
     required: false,
   })
   @IsOptional()
-  @IsEnum(StatusAppointment)
+  @IsEnum(StatusAppointment, {
+    message: 'El estado debe ser PENDING, CONFIRMED, CANCELLED o COMPLETED',
+  })
   status?: StatusAppointment;
 }
