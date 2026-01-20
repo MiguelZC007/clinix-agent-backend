@@ -92,6 +92,113 @@ interface ValidationError {
 
 ---
 
+## Módulo: Auth
+
+### Tipos
+
+```typescript
+interface LoginRequest {
+  phone: string;        // requerido
+  password: string;     // requerido, min 6 caracteres
+}
+
+interface LoginResponse {
+  accessToken: string;  // JWT válido por 30 días
+  user: {
+    id: string;
+    name: string;
+    lastName: string;
+    phone: string;
+    email: string;
+  };
+}
+
+interface LogoutResponse {
+  message: string;
+}
+```
+
+### Endpoints
+
+#### Iniciar Sesión
+```
+POST /v1/auth/login
+```
+
+**Request Body:**
+```typescript
+{
+  phone: string;        // requerido
+  password: string;     // requerido, min 6 caracteres
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Juan",
+      "lastName": "Pérez",
+      "phone": "+584241234567",
+      "email": "juan@ejemplo.com"
+    }
+  },
+  "timestamp": "2026-01-20T10:30:00.000Z"
+}
+```
+
+**Errores:**
+- `401` - Credenciales inválidas (AUTH_001)
+
+---
+
+#### Cerrar Sesión
+```
+POST /v1/auth/logout
+```
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Sesión cerrada correctamente"
+  },
+  "timestamp": "2026-01-20T10:30:00.000Z"
+}
+```
+
+**Errores:**
+- `401` - Token no proporcionado o inválido (AUTH_001)
+
+---
+
+### Autenticación
+
+Todos los endpoints (excepto `/v1/auth/login`) requieren autenticación mediante JWT.
+
+**Header requerido:**
+```
+Authorization: Bearer <token>
+```
+
+**Características del token:**
+- Algoritmo: HS256
+- Expiración: 30 días
+- Payload: `{ sub: userId, phone: userPhone }`
+
+**Decorador `@Public()`:**
+Los endpoints marcados con `@Public()` no requieren autenticación.
+
+---
+
 ## Módulo: Patients
 
 ### Tipos
@@ -644,25 +751,34 @@ const handleApiError = (error: ProblemDetails) => {
 ## Flujo de Trabajo Típico
 
 ```
-1. Registrar Paciente
+1. Iniciar Sesión
+   POST /v1/auth/login
+   { "phone": "+584241234567", "password": "password123" }
+   -> Guardar accessToken
+
+2. Registrar Paciente (con token)
    POST /v1/patients
+   Headers: Authorization: Bearer <token>
    
-2. Actualizar Antecedentes (opcional)
+3. Actualizar Antecedentes (opcional)
    PUT /v1/patients/:id/antecedents
    
-3. Agendar Cita
+4. Agendar Cita
    POST /v1/appointments
    
-4. Confirmar Cita
+5. Confirmar Cita
    PATCH /v1/appointments/:id
    { "status": "CONFIRMED" }
    
-5. Registrar Historia Clínica (después de la consulta)
+6. Registrar Historia Clínica (después de la consulta)
    POST /v1/clinic-histories
    
-6. Completar Cita
+7. Completar Cita
    PATCH /v1/appointments/:id
    { "status": "COMPLETED" }
+
+8. Cerrar Sesión (opcional)
+   POST /v1/auth/logout
 ```
 
 ---

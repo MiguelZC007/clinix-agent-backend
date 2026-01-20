@@ -19,6 +19,7 @@ import { CreateTwilioDto } from './dto/create-twilio.dto';
 import { UpdateTwilioDto } from './dto/update-twilio.dto';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('Twilio WhatsApp')
 @Controller('twilio')
@@ -57,6 +58,7 @@ export class TwilioController {
     );
   }
 
+  @Public()
   @Post('webhook/whatsapp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AuthGuard } from './modules/auth/guards/auth.guard';
 import { OpenaiModule } from './modules/openai/openai.module';
 import { UserModule } from './modules/user/user.module';
 import { PatientModule } from './modules/patient/patient.module';
@@ -12,6 +15,7 @@ import { ClinicHistoryModule } from './modules/clinic-history/clinic-history.mod
 @Module({
   imports: [
     PrismaModule,
+    AuthModule,
     OpenaiModule,
     UserModule,
     PatientModule,
@@ -20,6 +24,12 @@ import { ClinicHistoryModule } from './modules/clinic-history/clinic-history.mod
     ClinicHistoryModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
+    },
+  ],
 })
 export class AppModule {}

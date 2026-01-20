@@ -73,6 +73,10 @@ export const createMockPrismaService = () => ({
     create: jest.fn(),
     createMany: jest.fn(),
   },
+  revokedToken: {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+  },
   $transaction: jest.fn((callback) => callback),
 });
 
