@@ -182,9 +182,13 @@ POST /v1/auth/logout
 
 ### Autenticación
 
-Todos los endpoints (excepto `/v1/auth/login`) requieren autenticación mediante JWT.
+**Endpoints Públicos (NO requieren autenticación):**
+- `POST /v1/auth/login` - Iniciar sesión
+- `POST /v1/twilio/webhook/whatsapp` - Webhook de Twilio
 
-**Header requerido:**
+**Todos los demás endpoints requieren autenticación mediante JWT.**
+
+**Header requerido para endpoints protegidos:**
 ```
 Authorization: Bearer <token>
 ```
@@ -193,9 +197,14 @@ Authorization: Bearer <token>
 - Algoritmo: HS256
 - Expiración: 30 días
 - Payload: `{ sub: userId, phone: userPhone }`
+- Formato: `Bearer <token>` en el header Authorization
 
-**Decorador `@Public()`:**
-Los endpoints marcados con `@Public()` no requieren autenticación.
+**Manejo de tokens:**
+- Almacenar el token después del login exitoso
+- Incluir el token en todas las peticiones a endpoints protegidos
+- Si el token expira o es inválido, recibirás `401 Unauthorized` (AUTH_001)
+- Si el token es revocado (logout), recibirás `401 Unauthorized` (AUTH_001)
+- No hay refresh token, se debe hacer login nuevamente cuando expire
 
 ---
 
@@ -237,6 +246,12 @@ interface PatientAntecedents {
 ```
 POST /v1/patients
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
 
 **Request Body:**
 ```typescript
@@ -281,6 +296,11 @@ POST /v1/patients
 GET /v1/patients
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
 **Response:** `200 OK`
 ```json
 {
@@ -298,6 +318,11 @@ GET /v1/patients
 ```
 GET /v1/patients/:id
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
 
 **Parámetros:**
 - `id` (path) - UUID del paciente
@@ -320,6 +345,15 @@ GET /v1/patients/:id
 ```
 PATCH /v1/patients/:id
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
+
+**Parámetros:**
+- `id` (path) - UUID del paciente
 
 **Request Body:** (todos los campos son opcionales)
 ```typescript
@@ -347,6 +381,14 @@ PATCH /v1/patients/:id
 DELETE /v1/patients/:id
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `id` (path) - UUID del paciente
+
 **Response:** `204 No Content`
 
 **Errores:**
@@ -358,6 +400,14 @@ DELETE /v1/patients/:id
 ```
 GET /v1/patients/:id/antecedents
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `id` (path) - UUID del paciente
 
 **Response:** `200 OK`
 ```json
@@ -381,6 +431,15 @@ GET /v1/patients/:id/antecedents
 ```
 PUT /v1/patients/:id/antecedents
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
+
+**Parámetros:**
+- `id` (path) - UUID del paciente
 
 **Request Body:**
 ```typescript
@@ -439,6 +498,12 @@ interface AppointmentResponse {
 POST /v1/appointments
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
+
 **Request Body:**
 ```typescript
 {
@@ -464,6 +529,11 @@ POST /v1/appointments
 GET /v1/appointments
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
 **Response:** `200 OK` - AppointmentResponse[]
 
 ---
@@ -473,6 +543,14 @@ GET /v1/appointments
 GET /v1/appointments/:id
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `id` (path) - UUID de la cita
+
 **Response:** `200 OK` - AppointmentResponse
 
 ---
@@ -481,6 +559,15 @@ GET /v1/appointments/:id
 ```
 PATCH /v1/appointments/:id
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
+
+**Parámetros:**
+- `id` (path) - UUID de la cita
 
 **Request Body:**
 ```typescript
@@ -500,6 +587,14 @@ PATCH /v1/appointments/:id
 POST /v1/appointments/:id/cancel
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `id` (path) - UUID de la cita
+
 **Response:** `200 OK` - AppointmentResponse con status CANCELLED
 
 **Errores:**
@@ -512,6 +607,14 @@ POST /v1/appointments/:id/cancel
 ```
 GET /v1/patients/:patientId/appointments
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `patientId` (path) - UUID del paciente
 
 **Response:** `200 OK` - AppointmentResponse[]
 
@@ -557,6 +660,56 @@ interface PrescriptionRequest {
   medications: PrescriptionMedicationRequest[];  // min 1
 }
 
+interface DiagnosticResponse {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PhysicalExamResponse {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface VitalSignResponse {
+  id: string;
+  name: string;
+  description?: string;
+  value: string;
+  unit: string;
+  measurement: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PrescriptionMedicationResponse {
+  id: string;
+  name: string;
+  description?: string;
+  quantity: number;
+  unit: string;
+  frequency: string;
+  duration: string;
+  indications: string;
+  administrationRoute: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PrescriptionResponse {
+  id: string;
+  name: string;
+  description: string;
+  medications: PrescriptionMedicationResponse[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface ClinicHistoryResponse {
   id: string;
   patientId: string;
@@ -583,6 +736,12 @@ interface ClinicHistoryResponse {
 ```
 POST /v1/clinic-histories
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
 
 **Request Body:**
 ```typescript
@@ -656,6 +815,11 @@ POST /v1/clinic-histories
 GET /v1/clinic-histories
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
 **Response:** `200 OK` - ClinicHistoryResponse[]
 
 ---
@@ -664,6 +828,14 @@ GET /v1/clinic-histories
 ```
 GET /v1/clinic-histories/:id
 ```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `id` (path) - UUID de la historia clínica
 
 **Response:** `200 OK` - ClinicHistoryResponse
 
@@ -674,75 +846,233 @@ GET /v1/clinic-histories/:id
 GET /v1/patients/:patientId/clinic-histories
 ```
 
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `patientId` (path) - UUID del paciente
+
 **Response:** `200 OK` - ClinicHistoryResponse[]
 
 ---
 
 ## Ejemplos de Uso con Fetch
 
-### Crear Paciente
+### Configuración Base
 
 ```typescript
-const createPatient = async (data: CreatePatientDto) => {
-  const response = await fetch('http://localhost:3000/v1/patients', {
+const API_BASE_URL = 'http://localhost:3000/v1';
+
+const getAuthHeaders = (token?: string) => {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return headers;
+};
+```
+
+### Iniciar Sesión
+
+```typescript
+interface LoginRequest {
+  phone: string;
+  password: string;
+}
+
+interface LoginResponse {
+  success: boolean;
+  data: {
+    accessToken: string;
+    user: {
+      id: string;
+      name: string;
+      lastName: string;
+      phone: string;
+      email: string;
+    };
+  };
+  timestamp: string;
+}
+
+const login = async (credentials: LoginRequest): Promise<LoginResponse> => {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    headers: getAuthHeaders(),
+    body: JSON.stringify(credentials),
   });
   
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail);
+    throw new Error(error.detail || 'Error al iniciar sesión');
+  }
+  
+  return response.json();
+};
+
+// Uso:
+const { data } = await login({ phone: '+584241234567', password: 'password123' });
+// Guardar el token: localStorage.setItem('token', data.accessToken);
+```
+
+### Crear Paciente (con autenticación)
+
+```typescript
+interface CreatePatientDto {
+  email: string;
+  name: string;
+  lastName: string;
+  phone: string;
+  password?: string;
+  gender?: 'male' | 'female';
+  birthDate?: string;
+}
+
+const createPatient = async (
+  data: CreatePatientDto,
+  token: string
+) => {
+  const response = await fetch(`${API_BASE_URL}/patients`, {
+    method: 'POST',
+    headers: getAuthHeaders(token),
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Error al crear paciente');
   }
   
   return response.json();
 };
 ```
 
-### Agendar Cita
+### Agendar Cita (con autenticación)
 
 ```typescript
-const createAppointment = async (data: CreateAppointmentDto) => {
-  const response = await fetch('http://localhost:3000/v1/appointments', {
+interface CreateAppointmentDto {
+  patientId: string;
+  doctorId: string;
+  specialtyId: string;
+  startAppointment: string; // ISO 8601
+  endAppointment: string;    // ISO 8601
+}
+
+const createAppointment = async (
+  data: CreateAppointmentDto,
+  token: string
+) => {
+  const response = await fetch(`${API_BASE_URL}/appointments`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      patientId: data.patientId,
-      doctorId: data.doctorId,
-      specialtyId: data.specialtyId,
-      startAppointment: new Date(data.startDate).toISOString(),
-      endAppointment: new Date(data.endDate).toISOString()
-    })
+    headers: getAuthHeaders(token),
+    body: JSON.stringify(data),
   });
   
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Error al crear cita');
+  }
+  
   return response.json();
+};
+```
+
+### Cerrar Sesión
+
+```typescript
+const logout = async (token: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: getAuthHeaders(token),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Error al cerrar sesión');
+  }
+  
+  // Eliminar token del almacenamiento
+  localStorage.removeItem('token');
 };
 ```
 
 ### Manejo de Errores
 
 ```typescript
-const handleApiError = (error: ProblemDetails) => {
+interface ProblemDetails {
+  type: string;
+  title: string;
+  status: number;
+  code: string;
+  detail: string;
+  errors?: Array<{
+    field: string;
+    message: string;
+    rejectedValue?: any;
+  }>;
+  timestamp: string;
+}
+
+const handleApiError = async (response: Response): Promise<never> => {
+  const error: ProblemDetails = await response.json();
+  
   switch (error.code) {
+    case 'AUTH_001':
+      // Token inválido o expirado - redirigir a login
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+      throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente');
+      
+    case 'AUTH_002':
+      throw new Error('No tienes permisos para realizar esta acción');
+      
     case 'VAL_001':
       // Mostrar errores de validación
-      error.errors?.forEach(e => console.error(`${e.field}: ${e.message}`));
-      break;
+      const validationErrors = error.errors?.map(e => `${e.field}: ${e.message}`).join(', ');
+      throw new Error(validationErrors || error.detail);
+      
     case 'RES_001':
-      // Recurso no encontrado
-      console.error('El recurso solicitado no existe');
-      break;
+      throw new Error('El recurso solicitado no existe');
+      
     case 'RES_002':
-      // Duplicado
-      console.error('Ya existe un registro con estos datos');
-      break;
+      throw new Error('Ya existe un registro con estos datos');
+      
     case 'APP_001':
-      // Conflicto de horario
-      console.error('El horario seleccionado no está disponible');
-      break;
+      throw new Error('El horario seleccionado no está disponible');
+      
+    case 'APP_002':
+      throw new Error('La cita no puede ser cancelada');
+      
     default:
-      console.error(error.detail);
+      throw new Error(error.detail || 'Ha ocurrido un error');
   }
+};
+
+// Uso en función fetch mejorada
+const apiRequest = async <T>(
+  endpoint: string,
+  options: RequestInit = {},
+  token?: string
+): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(token),
+      ...options.headers,
+    },
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
 };
 ```
 
@@ -783,9 +1113,155 @@ const handleApiError = (error: ProblemDetails) => {
 
 ---
 
+## Módulo: Twilio WhatsApp
+
+### Endpoints
+
+#### Webhook de WhatsApp (Público)
+```
+POST /v1/twilio/webhook/whatsapp
+```
+
+**Autenticación:** NO requerida (endpoint público para Twilio)
+
+**Headers:**
+- `Content-Type: application/x-www-form-urlencoded` (Twilio envía form-data)
+
+**Request Body:** (form-data de Twilio)
+```typescript
+{
+  MessageSid: string;
+  AccountSid: string;
+  From: string;        // whatsapp:+1234567890
+  To: string;          // whatsapp:+14155238886
+  Body: string;
+  NumMedia: number;
+  MediaUrl0?: string;  // Si NumMedia > 0
+  MediaContentType0?: string;
+  SmsStatus: string;
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "message": "Mensaje procesado correctamente",
+  "data": {
+    "messageSid": "SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "from": "whatsapp:+1234567890",
+    "to": "whatsapp:+14155238886",
+    "body": "Hola, este es un mensaje recibido",
+    "hasMedia": false
+  }
+}
+```
+
+**Nota:** Este endpoint es llamado automáticamente por Twilio cuando se recibe un mensaje. No debe ser llamado directamente desde el frontend.
+
+---
+
+#### Enviar Mensaje de WhatsApp
+```
+POST /v1/twilio/whatsapp/send
+```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+- `Content-Type: application/json`
+
+**Request Body:**
+```typescript
+{
+  to: string;      // whatsapp:+1234567890
+  body: string;    // Contenido del mensaje
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "messageSid": "SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "status": "queued",
+    "to": "whatsapp:+1234567890",
+    "from": "whatsapp:+14155238886",
+    "body": "Hola, este es un mensaje de prueba",
+    "dateCreated": "2024-01-04T14:30:00Z"
+  }
+}
+```
+
+---
+
+#### Obtener Estado de Mensaje
+```
+GET /v1/twilio/message/:messageSid/status
+```
+
+**Autenticación:** Requerida (Bearer Token)
+
+**Headers:**
+- `Authorization: Bearer <token>` (requerido)
+
+**Parámetros:**
+- `messageSid` (path) - SID del mensaje de Twilio
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "sid": "SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "status": "delivered",
+    "to": "whatsapp:+1234567890",
+    "from": "whatsapp:+14155238886",
+    "body": "Hola, este es un mensaje de prueba",
+    "dateCreated": "2024-01-04T14:30:00Z",
+    "dateSent": "2024-01-04T14:30:05Z",
+    "dateUpdated": "2024-01-04T14:30:10Z",
+    "price": "-0.0055",
+    "priceUnit": "USD"
+  }
+}
+```
+
+---
+
 ## CORS
 
 El backend tiene CORS habilitado con las siguientes configuraciones:
 - Origin: Permitido
 - Methods: GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS
 - Credentials: true
+
+**Nota:** El frontend debe incluir `credentials: 'include'` en las peticiones fetch si se usan cookies, aunque en este caso se usa JWT en headers.
+
+---
+
+## Consideraciones Adicionales
+
+### Formato de Fechas
+- Todas las fechas se envían y reciben en formato ISO 8601
+- Ejemplo: `"2026-01-20T10:30:00.000Z"`
+- Para fechas de nacimiento, usar formato: `"YYYY-MM-DD"` (se convertirá automáticamente)
+
+### UUIDs
+- Todos los IDs son UUIDs v4
+- Formato: `550e8400-e29b-41d4-a716-446655440000`
+
+### Validación
+- Todos los campos requeridos deben estar presentes
+- Los campos opcionales pueden omitirse o enviarse como `null`
+- La validación se realiza en el backend y retorna errores detallados en `ProblemDetails`
+
+### Rate Limiting
+- Actualmente no hay rate limiting implementado
+- Se recomienda implementar en el frontend para evitar múltiples peticiones simultáneas
+
+### Paginación
+- Los endpoints de listado (`GET /v1/patients`, `GET /v1/appointments`, etc.) actualmente retornan todos los registros
+- Se recomienda implementar paginación en futuras versiones
