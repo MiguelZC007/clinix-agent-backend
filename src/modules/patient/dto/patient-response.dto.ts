@@ -33,6 +33,13 @@ export class PatientResponseDto {
   phone: string;
 
   @ApiProperty({
+    description: 'Dirección del paciente',
+    example: 'Calle 123, Ciudad',
+    required: false,
+  })
+  address?: string;
+
+  @ApiProperty({
     description: 'Género del paciente',
     example: 'male',
     enum: Gender,

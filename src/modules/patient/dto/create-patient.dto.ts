@@ -54,6 +54,16 @@ export class CreatePatientDto {
   phone: string;
 
   @ApiProperty({
+    description: 'Dirección del paciente',
+    example: 'Calle 123, Ciudad',
+  })
+  @IsNotEmpty({ message: 'La dirección es requerida' })
+  @IsString({ message: 'La dirección debe ser texto' })
+  @MinLength(5, { message: 'La dirección debe tener al menos 5 caracteres' })
+  @MaxLength(255, { message: 'La dirección no puede exceder 255 caracteres' })
+  address: string;
+
+  @ApiProperty({
     description: 'Contraseña del paciente',
     example: 'password123',
     required: false,

@@ -9,6 +9,7 @@ describe('CreatePatientDto', () => {
     name: 'Juan',
     lastName: 'Pérez',
     phone: '+584241234567',
+    address: 'Calle 123',
   };
 
   it('debe pasar validación con datos válidos', async () => {
@@ -26,6 +27,20 @@ describe('CreatePatientDto', () => {
     });
     const errors = await validate(dto);
     expect(errors.length).toBe(0);
+  });
+
+  describe('address', () => {
+    it('debe fallar si address está vacío', async () => {
+      const dto = plainToInstance(CreatePatientDto, { ...validData, address: '' });
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'address')).toBe(true);
+    });
+
+    it('debe fallar si address tiene menos de 5 caracteres', async () => {
+      const dto = plainToInstance(CreatePatientDto, { ...validData, address: '1234' });
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'address')).toBe(true);
+    });
   });
 
   describe('email', () => {

@@ -24,6 +24,7 @@ model Patient {
   id              String          @id @default(uuid())
   userId          String          @unique
   user            User            @relation(fields: [userId], references: [id])
+  address         String?
   gender          String?
   birthDate       DateTime?
   allergies       String[]
@@ -66,6 +67,7 @@ model Appointment {
   patient          Patient        @relation(fields: [patientId], references: [id])
   doctorId         String
   doctor           Doctor         @relation(fields: [doctorId], references: [id])
+  reason           String?
   startAppointment DateTime
   endAppointment   DateTime
   status           String

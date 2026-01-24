@@ -260,6 +260,7 @@ POST /v1/patients
   name: string;         // requerido, min 2 caracteres
   lastName: string;     // requerido, min 2 caracteres
   phone: string;        // requerido
+  address: string;      // requerido, min 5 caracteres
   password?: string;    // opcional, min 6 caracteres
   gender?: Gender;      // opcional
   birthDate?: string;   // opcional, formato "YYYY-MM-DD"
@@ -276,6 +277,7 @@ POST /v1/patients
     "name": "Juan",
     "lastName": "Pérez",
     "phone": "+584241234567",
+    "address": "Calle 123, Ciudad",
     "gender": "male",
     "birthDate": "1990-05-15T00:00:00.000Z",
     "createdAt": "2026-01-18T10:30:00.000Z",
@@ -362,6 +364,7 @@ PATCH /v1/patients/:id
   name?: string;
   lastName?: string;
   phone?: string;
+  address?: string;
   password?: string;
   gender?: Gender;
   birthDate?: string;
@@ -472,6 +475,7 @@ interface AppointmentResponse {
   patientId: string;
   doctorId: string;
   specialtyId: string;
+  reason: string;
   startAppointment: string;  // ISO 8601 datetime
   endAppointment: string;    // ISO 8601 datetime
   status: StatusAppointment;
@@ -512,6 +516,7 @@ POST /v1/appointments
   specialtyId: string;    // UUID, requerido
   startAppointment: string;  // ISO 8601, requerido
   endAppointment: string;    // ISO 8601, requerido
+  reason: string;            // requerido, min 3 caracteres
 }
 ```
 
@@ -575,6 +580,7 @@ PATCH /v1/appointments/:id
   startAppointment?: string;
   endAppointment?: string;
   status?: StatusAppointment;
+  reason?: string;
 }
 ```
 

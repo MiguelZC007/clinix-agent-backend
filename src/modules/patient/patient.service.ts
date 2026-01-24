@@ -34,6 +34,7 @@ export class PatientService {
         password: createPatientDto.password,
         patient: {
           create: {
+            address: createPatientDto.address,
             gender: createPatientDto.gender,
             birthDate: createPatientDto.birthDate
               ? new Date(createPatientDto.birthDate)
@@ -114,6 +115,7 @@ export class PatientService {
     const updatedPatient = await this.prisma.patient.update({
       where: { id },
       data: {
+        address: updatePatientDto.address,
         gender: updatePatientDto.gender,
         birthDate: updatePatientDto.birthDate
           ? new Date(updatePatientDto.birthDate)
@@ -214,6 +216,7 @@ export class PatientService {
       id: string;
       gender: string | null;
       birthDate: Date | null;
+      address: string | null;
     } | null;
   }): PatientResponseDto {
     return {
@@ -224,6 +227,7 @@ export class PatientService {
       phone: user.phone,
       gender: user.patient?.gender as Gender | undefined,
       birthDate: user.patient?.birthDate ?? undefined,
+      address: user.patient?.address ?? undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -233,6 +237,7 @@ export class PatientService {
     id: string;
     gender: string | null;
     birthDate: Date | null;
+    address: string | null;
     createdAt: Date;
     updatedAt: Date;
     user: {
@@ -250,6 +255,7 @@ export class PatientService {
       phone: patient.user.phone,
       gender: patient.gender as Gender | undefined,
       birthDate: patient.birthDate ?? undefined,
+      address: patient.address ?? undefined,
       createdAt: patient.createdAt,
       updatedAt: patient.updatedAt,
     };

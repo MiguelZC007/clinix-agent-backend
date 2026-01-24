@@ -9,6 +9,7 @@ describe('CreateAppointmentDto', () => {
     specialtyId: '550e8400-e29b-41d4-a716-446655440002',
     startAppointment: '2026-01-20T09:00:00.000Z',
     endAppointment: '2026-01-20T09:30:00.000Z',
+    reason: 'Consulta de control',
   };
 
   it('debe pasar validación con datos válidos', async () => {
@@ -114,6 +115,26 @@ describe('CreateAppointmentDto', () => {
       });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'endAppointment')).toBe(true);
+    });
+  });
+
+  describe('reason', () => {
+    it('debe fallar si reason está vacío', async () => {
+      const dto = plainToInstance(CreateAppointmentDto, {
+        ...validData,
+        reason: '',
+      });
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'reason')).toBe(true);
+    });
+
+    it('debe fallar si reason no tiene longitud suficiente', async () => {
+      const dto = plainToInstance(CreateAppointmentDto, {
+        ...validData,
+        reason: 'ok',
+      });
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'reason')).toBe(true);
     });
   });
 });

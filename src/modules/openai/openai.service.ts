@@ -564,6 +564,7 @@ REGLAS ESTRICTAS:
             patientId: args.patientId as string,
             doctorId: args.doctorId as string,
             specialtyId: args.specialtyId as string,
+            reason: args.reason as string | undefined,
             startAppointment: new Date(args.startAppointment as string),
             endAppointment: new Date(args.endAppointment as string),
             status: 'pending',
@@ -598,6 +599,7 @@ REGLAS ESTRICTAS:
               ? new Date(args.endAppointment as string)
               : undefined,
             status: args.status as string | undefined,
+            reason: args.reason as string | undefined,
           },
         });
 

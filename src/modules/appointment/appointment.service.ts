@@ -83,6 +83,7 @@ export class AppointmentService {
         patientId: createAppointmentDto.patientId,
         doctorId: createAppointmentDto.doctorId,
         specialtyId: createAppointmentDto.specialtyId,
+        reason: createAppointmentDto.reason,
         startAppointment: startDate,
         endAppointment: endDate,
         status: StatusAppointment.PENDING,
@@ -187,6 +188,7 @@ export class AppointmentService {
           ? new Date(updateAppointmentDto.endAppointment)
           : undefined,
         status: updateAppointmentDto.status,
+        reason: updateAppointmentDto.reason,
       },
       include: {
         patient: { include: { user: true } },
@@ -254,6 +256,7 @@ export class AppointmentService {
     specialtyId: string;
     startAppointment: Date;
     endAppointment: Date;
+    reason: string | null;
     status: string;
     createdAt: Date;
     updatedAt: Date;
@@ -287,6 +290,7 @@ export class AppointmentService {
       specialtyId: appointment.specialtyId,
       startAppointment: appointment.startAppointment,
       endAppointment: appointment.endAppointment,
+      reason: appointment.reason ?? '',
       status: appointment.status as StatusAppointment,
       patient,
       doctor,

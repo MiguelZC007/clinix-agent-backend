@@ -18,6 +18,7 @@ describe('PatientController', () => {
     name: 'Juan',
     lastName: 'Pérez',
     phone: '+584241234567',
+    address: 'Calle 123',
     gender: Gender.MALE,
     birthDate: new Date('1990-05-15'),
     createdAt: new Date(),
@@ -64,6 +65,7 @@ describe('PatientController', () => {
         name: 'Juan',
         lastName: 'Pérez',
         phone: '+584241234567',
+        address: 'Calle 123',
         gender: Gender.MALE,
       };
 

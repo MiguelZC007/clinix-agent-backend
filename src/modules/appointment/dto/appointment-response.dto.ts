@@ -92,6 +92,12 @@ export class AppointmentResponseDto {
   status: StatusAppointment;
 
   @ApiProperty({
+    description: 'Motivo de la cita',
+    example: 'Consulta de control',
+  })
+  reason: string;
+
+  @ApiProperty({
     description: 'Información del paciente',
     type: AppointmentPatientDto,
   })

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsOptional, IsDateString, IsEnum, IsString, MinLength, MaxLength } from 'class-validator';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 
 export class UpdateAppointmentDto {
@@ -32,4 +32,15 @@ export class UpdateAppointmentDto {
     message: 'El estado debe ser PENDING, CONFIRMED, CANCELLED o COMPLETED',
   })
   status?: StatusAppointment;
+
+  @ApiProperty({
+    description: 'Motivo de la cita',
+    example: 'Control de seguimiento',
+    required: false,
+  })
+  @IsOptional()
+  @IsString({ message: 'El motivo debe ser texto' })
+  @MinLength(3, { message: 'El motivo debe tener al menos 3 caracteres' })
+  @MaxLength(500, { message: 'El motivo no puede exceder 500 caracteres' })
+  reason?: string;
 }

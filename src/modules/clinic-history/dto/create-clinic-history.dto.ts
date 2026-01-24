@@ -11,7 +11,7 @@ import {
   ArrayMaxSize,
   IsNotEmpty,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { CreateDiagnosticDto } from './create-diagnostic.dto';
 import { CreatePhysicalExamDto } from './create-physical-exam.dto';
 import { CreateVitalSignDto } from './create-vital-sign.dto';
@@ -34,6 +34,7 @@ export class CreateClinicHistoryDto {
   @IsString({ message: 'El motivo de consulta debe ser texto' })
   @MinLength(10, { message: 'El motivo de consulta debe tener al menos 10 caracteres' })
   @MaxLength(1000, { message: 'El motivo de consulta no puede exceder 1000 caracteres' })
+  @Transform(({ obj, value }) => value ?? obj.reason)
   consultationReason: string;
 
   @ApiProperty({
@@ -45,6 +46,9 @@ export class CreateClinicHistoryDto {
   @ArrayMinSize(1, { message: 'Debe incluir al menos un síntoma' })
   @ArrayMaxSize(50, { message: 'No puede incluir más de 50 síntomas' })
   @IsString({ each: true, message: 'Cada síntoma debe ser texto' })
+  @Transform(({ value }) =>
+    Array.isArray(value) ? value : value ? [value] : value,
+  )
   symptoms: string[];
 
   @ApiProperty({

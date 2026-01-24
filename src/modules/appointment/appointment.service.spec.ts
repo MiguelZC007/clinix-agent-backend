@@ -39,6 +39,7 @@ describe('AppointmentService', () => {
     patientId: 'patient-uuid',
     doctorId: 'doctor-uuid',
     specialtyId: 'specialty-uuid',
+    reason: 'Consulta de control',
     startAppointment: new Date('2026-01-20T09:00:00.000Z'),
     endAppointment: new Date('2026-01-20T09:30:00.000Z'),
     status: StatusAppointment.PENDING,
@@ -72,6 +73,7 @@ describe('AppointmentService', () => {
       specialtyId: 'specialty-uuid',
       startAppointment: '2026-01-20T09:00:00.000Z',
       endAppointment: '2026-01-20T09:30:00.000Z',
+      reason: 'Consulta de control',
     };
 
     it('debe crear una cita exitosamente', async () => {
@@ -167,6 +169,7 @@ describe('AppointmentService', () => {
   describe('update', () => {
     const updateDto: UpdateAppointmentDto = {
       status: StatusAppointment.CONFIRMED,
+      reason: 'Motivo actualizado',
     };
 
     it('debe actualizar una cita exitosamente', async () => {
@@ -174,11 +177,13 @@ describe('AppointmentService', () => {
       prisma.appointment.update.mockResolvedValue({
         ...mockAppointment,
         status: StatusAppointment.CONFIRMED,
+        reason: 'Motivo actualizado',
       });
 
       const result = await service.update('appointment-uuid', updateDto);
 
       expect(result.status).toBe(StatusAppointment.CONFIRMED);
+      expect(result.reason).toBe('Motivo actualizado');
     });
 
     it('debe lanzar NotFoundException si la cita no existe', async () => {

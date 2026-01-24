@@ -83,6 +83,19 @@ describe('CreateClinicHistoryDto', () => {
       expect(errors.some((e) => e.property === 'consultationReason')).toBe(true);
     });
 
+    it('debe aceptar el alias reason cuando consultationReason no está presente', async () => {
+      const dto = plainToInstance(CreateClinicHistoryDto, {
+        ...validData,
+        reason: 'Dolor de cabeza persistente desde hace 3 días',
+        consultationReason: undefined,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+      expect(dto.consultationReason).toBe(
+        'Dolor de cabeza persistente desde hace 3 días',
+      );
+    });
+
     it('debe fallar si consultationReason excede 1000 caracteres', async () => {
       const dto = plainToInstance(CreateClinicHistoryDto, {
         ...validData,
@@ -119,6 +132,16 @@ describe('CreateClinicHistoryDto', () => {
       });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'symptoms')).toBe(true);
+    });
+
+    it('debe transformar un string en arreglo de symptoms', async () => {
+      const dto = plainToInstance(CreateClinicHistoryDto, {
+        ...validData,
+        symptoms: 'dolor de cabeza',
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+      expect(dto.symptoms).toEqual(['dolor de cabeza']);
     });
   });
 

@@ -19,6 +19,7 @@ describe('AppointmentController', () => {
     patientId: 'patient-uuid',
     doctorId: 'doctor-uuid',
     specialtyId: 'specialty-uuid',
+    reason: 'Consulta de control',
     startAppointment: new Date('2026-01-20T09:00:00.000Z'),
     endAppointment: new Date('2026-01-20T09:30:00.000Z'),
     status: StatusAppointment.PENDING,
@@ -71,6 +72,7 @@ describe('AppointmentController', () => {
         specialtyId: 'specialty-uuid',
         startAppointment: '2026-01-20T09:00:00.000Z',
         endAppointment: '2026-01-20T09:30:00.000Z',
+      reason: 'Consulta de control',
       };
 
       service.create.mockResolvedValue(mockAppointmentResponse);
@@ -108,10 +110,12 @@ describe('AppointmentController', () => {
     it('debe llamar a appointmentService.update con ID y DTO', async () => {
       const updateDto: UpdateAppointmentDto = {
         status: StatusAppointment.CONFIRMED,
+        reason: 'Motivo actualizado',
       };
       service.update.mockResolvedValue({
         ...mockAppointmentResponse,
         status: StatusAppointment.CONFIRMED,
+        reason: 'Motivo actualizado',
       });
 
       const result = await controller.update('appointment-uuid', updateDto);

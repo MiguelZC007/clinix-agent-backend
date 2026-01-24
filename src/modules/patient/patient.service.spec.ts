@@ -31,6 +31,7 @@ describe('PatientService', () => {
     userId: 'user-uuid',
     gender: 'male',
     birthDate: new Date('1990-05-15'),
+    address: 'Calle 123',
     allergies: ['penicilina'],
     medications: ['aspirina'],
     medicalHistory: ['diabetes'],
@@ -64,6 +65,7 @@ describe('PatientService', () => {
       lastName: 'Pérez',
       phone: '+584241234567',
       password: 'password123',
+      address: 'Calle 123',
       gender: Gender.MALE,
       birthDate: '1990-05-15',
     };
@@ -133,6 +135,7 @@ describe('PatientService', () => {
   describe('update', () => {
     const updateDto: UpdatePatientDto = {
       name: 'Juan Carlos',
+      address: 'Calle 456',
     };
 
     it('debe actualizar un paciente exitosamente', async () => {
@@ -140,6 +143,7 @@ describe('PatientService', () => {
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.patient.update.mockResolvedValue({
         ...mockPatient,
+        address: 'Calle 456',
         user: { ...mockUser, name: 'Juan Carlos' },
       });
 

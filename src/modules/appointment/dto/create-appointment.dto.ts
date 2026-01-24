@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsDateString, IsNotEmpty } from 'class-validator';
+import { IsUUID, IsDateString, IsNotEmpty, IsString, MinLength, MaxLength } from 'class-validator';
 
 export class CreateAppointmentDto {
   @ApiProperty({
@@ -41,4 +41,14 @@ export class CreateAppointmentDto {
   @IsNotEmpty({ message: 'La fecha de fin es requerida' })
   @IsDateString({}, { message: 'La fecha de fin debe tener formato ISO 8601' })
   endAppointment: string;
+
+  @ApiProperty({
+    description: 'Motivo de la cita',
+    example: 'Consulta de control',
+  })
+  @IsNotEmpty({ message: 'El motivo de la cita es requerido' })
+  @IsString({ message: 'El motivo debe ser texto' })
+  @MinLength(3, { message: 'El motivo debe tener al menos 3 caracteres' })
+  @MaxLength(500, { message: 'El motivo no puede exceder 500 caracteres' })
+  reason: string;
 }
