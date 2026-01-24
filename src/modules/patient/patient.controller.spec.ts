@@ -10,7 +10,35 @@ import { Gender } from 'src/core/enum/gender.enum';
 
 describe('PatientController', () => {
   let controller: PatientController;
-  let service: jest.Mocked<PatientService>;
+  type MockPatientService = {
+    create: jest.MockedFunction<
+      (this: void, dto: CreatePatientDto) => Promise<PatientResponseDto>
+    >;
+    findAll: jest.MockedFunction<(this: void) => Promise<PatientResponseDto[]>>;
+    findOne: jest.MockedFunction<
+      (this: void, id: string) => Promise<PatientResponseDto>
+    >;
+    update: jest.MockedFunction<
+      (
+        this: void,
+        id: string,
+        dto: UpdatePatientDto,
+      ) => Promise<PatientResponseDto>
+    >;
+    remove: jest.MockedFunction<(this: void, id: string) => Promise<void>>;
+    getAntecedents: jest.MockedFunction<
+      (this: void, id: string) => Promise<PatientAntecedentsDto>
+    >;
+    updateAntecedents: jest.MockedFunction<
+      (
+        this: void,
+        id: string,
+        dto: UpdatePatientAntecedentsDto,
+      ) => Promise<PatientAntecedentsDto>
+    >;
+  };
+
+  let service: MockPatientService;
 
   const mockPatientResponse: PatientResponseDto = {
     id: 'patient-uuid',
@@ -35,7 +63,7 @@ describe('PatientController', () => {
   };
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockPatientService = {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
@@ -146,7 +174,10 @@ describe('PatientController', () => {
         allergies: ['penicilina', 'sulfas'],
       });
 
-      const result = await controller.updateAntecedents('patient-uuid', updateDto);
+      const result = await controller.updateAntecedents(
+        'patient-uuid',
+        updateDto,
+      );
 
       expect(service.updateAntecedents).toHaveBeenCalledWith(
         'patient-uuid',

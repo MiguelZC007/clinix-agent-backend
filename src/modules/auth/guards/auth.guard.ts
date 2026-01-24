@@ -39,7 +39,7 @@ export class AuthGuard implements CanActivate {
     const token = this.extractTokenFromHeader(request);
 
     if (!token) {
-      throw new UnauthorizedException('Token no proporcionado');
+      throw new UnauthorizedException('token-missing');
     }
 
     try {
@@ -50,7 +50,7 @@ export class AuthGuard implements CanActivate {
       });
 
       if (isRevoked) {
-        throw new UnauthorizedException('Token revocado');
+        throw new UnauthorizedException('token-revoked');
       }
 
       const user = await this.prisma.user.findUnique({
@@ -67,7 +67,7 @@ export class AuthGuard implements CanActivate {
       });
 
       if (!user) {
-        throw new UnauthorizedException('Usuario no encontrado');
+        throw new UnauthorizedException('user-not-found');
       }
 
       request['user'] = user;
@@ -76,7 +76,7 @@ export class AuthGuard implements CanActivate {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Token inválido o expirado');
+      throw new UnauthorizedException('token-invalid-or-expired');
     }
 
     return true;

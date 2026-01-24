@@ -11,7 +11,12 @@ describe('CreateClinicHistoryDto', () => {
     diagnostics: [{ name: 'Migraña', description: 'Cefalea tensional' }],
     physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
     vitalSigns: [
-      { name: 'Presión arterial', value: '120/80', unit: 'mmHg', measurement: 'sistólica/diastólica' },
+      {
+        name: 'Presión arterial',
+        value: '120/80',
+        unit: 'mmHg',
+        measurement: 'sistólica/diastólica',
+      },
     ],
   };
 
@@ -71,7 +76,9 @@ describe('CreateClinicHistoryDto', () => {
         consultationReason: '',
       });
       const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'consultationReason')).toBe(true);
+      expect(errors.some((e) => e.property === 'consultationReason')).toBe(
+        true,
+      );
     });
 
     it('debe fallar si consultationReason tiene menos de 10 caracteres', async () => {
@@ -80,7 +87,9 @@ describe('CreateClinicHistoryDto', () => {
         consultationReason: 'Corto',
       });
       const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'consultationReason')).toBe(true);
+      expect(errors.some((e) => e.property === 'consultationReason')).toBe(
+        true,
+      );
     });
 
     it('debe aceptar el alias reason cuando consultationReason no está presente', async () => {
@@ -102,7 +111,9 @@ describe('CreateClinicHistoryDto', () => {
         consultationReason: 'A'.repeat(1001),
       });
       const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'consultationReason')).toBe(true);
+      expect(errors.some((e) => e.property === 'consultationReason')).toBe(
+        true,
+      );
     });
   });
 
@@ -169,7 +180,10 @@ describe('CreateClinicHistoryDto', () => {
     it('debe fallar si diagnostics tiene más de 20 elementos', async () => {
       const dto = plainToInstance(CreateClinicHistoryDto, {
         ...validData,
-        diagnostics: Array(21).fill({ name: 'Diagnóstico', description: 'Desc' }),
+        diagnostics: Array(21).fill({
+          name: 'Diagnóstico',
+          description: 'Desc',
+        }),
       });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'diagnostics')).toBe(true);

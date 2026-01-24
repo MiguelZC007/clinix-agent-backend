@@ -8,7 +8,6 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from 'src/prisma/__mocks__/prisma.service.mock';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 describe('AuthGuard', () => {
   let guard: AuthGuard;
@@ -33,8 +32,14 @@ describe('AuthGuard', () => {
     exp: Math.floor(Date.now() / 1000) + 3600,
   };
 
+  type RequestLike = {
+    headers: { authorization?: string };
+    user?: unknown;
+    token?: string;
+  };
+
   const createMockContext = (headers: Record<string, string> = {}) => {
-    const request = {
+    const request: RequestLike = {
       headers: {
         authorization: headers.authorization || undefined,
       },
@@ -44,7 +49,7 @@ describe('AuthGuard', () => {
 
     return {
       switchToHttp: () => ({
-        getRequest: () => request,
+        getRequest: <T = RequestLike>() => request as unknown as T,
       }),
       getHandler: () => ({}),
       getClass: () => ({}),
@@ -88,7 +93,7 @@ describe('AuthGuard', () => {
       const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
-      expect(jwtService.verifyAsync).not.toHaveBeenCalled();
+      expect(jwtService.verifyAsync.mock.calls.length).toBe(0);
     });
 
     it('debe lanzar UnauthorizedException si no hay token', async () => {
@@ -98,9 +103,7 @@ describe('AuthGuard', () => {
       await expect(guard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
-      await expect(guard.canActivate(context)).rejects.toThrow(
-        'Token no proporcionado',
-      );
+      await expect(guard.canActivate(context)).rejects.toThrow('token-missing');
     });
 
     it('debe lanzar UnauthorizedException si el token es inválido', async () => {
@@ -114,7 +117,7 @@ describe('AuthGuard', () => {
         UnauthorizedException,
       );
       await expect(guard.canActivate(context)).rejects.toThrow(
-        'Token inválido o expirado',
+        'token-invalid-or-expired',
       );
     });
 
@@ -135,7 +138,7 @@ describe('AuthGuard', () => {
       await expect(guard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
-      await expect(guard.canActivate(context)).rejects.toThrow('Token revocado');
+      await expect(guard.canActivate(context)).rejects.toThrow('token-revoked');
     });
 
     it('debe lanzar UnauthorizedException si el usuario no existe', async () => {
@@ -151,7 +154,7 @@ describe('AuthGuard', () => {
         UnauthorizedException,
       );
       await expect(guard.canActivate(context)).rejects.toThrow(
-        'Usuario no encontrado',
+        'user-not-found',
       );
     });
 
@@ -167,7 +170,7 @@ describe('AuthGuard', () => {
       const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
-      const request = context.switchToHttp().getRequest();
+      const request = context.switchToHttp().getRequest<RequestLike>();
       expect(request.user).toEqual(mockUser);
       expect(request.token).toBe('valid-token');
     });
@@ -183,7 +186,7 @@ describe('AuthGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(jwtService.verifyAsync).toHaveBeenCalledWith('my-token-123');
+      expect(jwtService.verifyAsync.mock.calls[0]?.[0]).toBe('my-token-123');
     });
 
     it('debe ignorar el tipo de autorización si no es Bearer', async () => {
@@ -195,7 +198,7 @@ describe('AuthGuard', () => {
       await expect(guard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
-      expect(jwtService.verifyAsync).not.toHaveBeenCalled();
+      expect(jwtService.verifyAsync.mock.calls.length).toBe(0);
     });
   });
 });

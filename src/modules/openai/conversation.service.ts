@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Conversation, Message } from '@prisma/client';
 import environment from 'src/core/config/environments';
@@ -29,7 +29,9 @@ export class ConversationService {
     });
   }
 
-  async findDoctorByPhone(phone: string): Promise<{ doctorId: string; doctorName: string } | null> {
+  async findDoctorByPhone(
+    phone: string,
+  ): Promise<{ doctorId: string; doctorName: string } | null> {
     const normalizedPhone = this.normalizePhoneNumber(phone);
 
     const user = await this.prisma.user.findFirst({
@@ -73,7 +75,9 @@ export class ConversationService {
     });
 
     if (existingConversation) {
-      const isSessionExpired = this.isSessionExpired(existingConversation.lastActivityAt);
+      const isSessionExpired = this.isSessionExpired(
+        existingConversation.lastActivityAt,
+      );
 
       if (isSessionExpired) {
         await this.prisma.conversation.update({
@@ -89,7 +93,7 @@ export class ConversationService {
         data: { lastActivityAt: new Date() },
       });
 
-      const messages = await this.buildContextMessages(existingConversation);
+      const messages = this.buildContextMessages(existingConversation);
 
       return {
         conversation: existingConversation,
@@ -130,9 +134,9 @@ export class ConversationService {
     };
   }
 
-  private async buildContextMessages(
+  private buildContextMessages(
     conversation: Conversation & { messages: Message[] },
-  ): Promise<ConversationMessage[]> {
+  ): ConversationMessage[] {
     const messages: ConversationMessage[] = [];
 
     if (conversation.summary) {
@@ -194,7 +198,10 @@ export class ConversationService {
     const totalMessages = conversation.messages.length;
 
     if (totalMessages > MESSAGES_THRESHOLD_FOR_SUMMARY) {
-      const messagesToSummarize = conversation.messages.slice(0, MESSAGES_TO_SUMMARIZE);
+      const messagesToSummarize = conversation.messages.slice(
+        0,
+        MESSAGES_TO_SUMMARIZE,
+      );
       const newSummary = await this.generateSummary(
         conversation.summary,
         messagesToSummarize,
@@ -233,7 +240,8 @@ export class ConversationService {
       messages: [
         {
           role: 'system',
-          content: 'Eres un asistente que resume conversaciones médicas de forma concisa. Máximo 300 palabras.',
+          content:
+            'Eres un asistente que resume conversaciones médicas de forma concisa. Máximo 300 palabras.',
         },
         {
           role: 'user',
@@ -246,7 +254,9 @@ export class ConversationService {
     return response.choices[0]?.message?.content || existingSummary || '';
   }
 
-  async getConversationById(conversationId: string): Promise<Conversation | null> {
+  async getConversationById(
+    conversationId: string,
+  ): Promise<Conversation | null> {
     return this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
@@ -264,7 +274,9 @@ export class ConversationService {
     });
   }
 
-  async getActiveConversationByDoctorId(doctorId: string): Promise<Conversation | null> {
+  async getActiveConversationByDoctorId(
+    doctorId: string,
+  ): Promise<Conversation | null> {
     return this.prisma.conversation.findFirst({
       where: {
         doctorId,

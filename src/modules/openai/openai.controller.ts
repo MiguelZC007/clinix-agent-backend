@@ -19,7 +19,10 @@ export class OpenaiController {
       type: 'object',
       properties: {
         phone: { type: 'string', example: '+584121234567' },
-        message: { type: 'string', example: 'Hola, necesito registrar un paciente' },
+        message: {
+          type: 'string',
+          example: 'Hola, necesito registrar un paciente',
+        },
       },
     },
   })

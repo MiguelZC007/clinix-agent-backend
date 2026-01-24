@@ -92,14 +92,18 @@ describe('AppointmentService', () => {
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar NotFoundException si el doctor no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.doctor.findUnique.mockResolvedValue(null);
 
-      await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar NotFoundException si la especialidad no existe', async () => {
@@ -107,7 +111,9 @@ describe('AppointmentService', () => {
       prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
       prisma.specialty.findUnique.mockResolvedValue(null);
 
-      await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar BadRequestException si fecha inicio >= fecha fin', async () => {
@@ -132,7 +138,9 @@ describe('AppointmentService', () => {
       prisma.specialty.findUnique.mockResolvedValue(mockSpecialty);
       prisma.appointment.findFirst.mockResolvedValue(mockAppointment);
 
-      await expect(service.create(createDto)).rejects.toThrow(ConflictException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 

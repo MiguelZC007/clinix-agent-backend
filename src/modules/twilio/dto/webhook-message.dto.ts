@@ -4,42 +4,42 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class WebhookMessageDto {
   @ApiProperty({
     description: 'SID único del mensaje',
-    example: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    example: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
   })
   @IsString()
   MessageSid: string;
 
   @ApiProperty({
     description: 'SID de la cuenta de Twilio',
-    example: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    example: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
   })
   @IsString()
   AccountSid: string;
 
   @ApiProperty({
     description: 'Número de teléfono que envía el mensaje',
-    example: 'whatsapp:+1234567890'
+    example: 'whatsapp:+1234567890',
   })
   @IsString()
   From: string;
 
   @ApiProperty({
     description: 'Número de teléfono que recibe el mensaje',
-    example: 'whatsapp:+14155238886'
+    example: 'whatsapp:+14155238886',
   })
   @IsString()
   To: string;
 
   @ApiProperty({
     description: 'Contenido del mensaje',
-    example: 'Hola, este es un mensaje recibido'
+    example: 'Hola, este es un mensaje recibido',
   })
   @IsString()
   Body: string;
 
   @ApiPropertyOptional({
     description: 'Número de archivos multimedia adjuntos',
-    example: 0
+    example: 0,
   })
   @IsOptional()
   @IsNumber()
@@ -47,7 +47,8 @@ export class WebhookMessageDto {
 
   @ApiPropertyOptional({
     description: 'URL del archivo multimedia (si existe)',
-    example: 'https://api.twilio.com/2010-04-01/Accounts/.../Messages/.../Media/...'
+    example:
+      'https://api.twilio.com/2010-04-01/Accounts/.../Messages/.../Media/...',
   })
   @IsOptional()
   @IsString()
@@ -55,7 +56,7 @@ export class WebhookMessageDto {
 
   @ApiPropertyOptional({
     description: 'Tipo de contenido del archivo multimedia',
-    example: 'image/jpeg'
+    example: 'image/jpeg',
   })
   @IsOptional()
   @IsString()
@@ -63,7 +64,7 @@ export class WebhookMessageDto {
 
   @ApiPropertyOptional({
     description: 'Estado del mensaje',
-    example: 'received'
+    example: 'received',
   })
   @IsOptional()
   @IsString()
@@ -71,7 +72,7 @@ export class WebhookMessageDto {
 
   @ApiPropertyOptional({
     description: 'Timestamp del mensaje',
-    example: '2024-01-04T14:30:00Z'
+    example: '2024-01-04T14:30:00Z',
   })
   @IsOptional()
   @IsString()

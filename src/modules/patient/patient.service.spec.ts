@@ -45,10 +45,7 @@ describe('PatientService', () => {
     prisma = createMockPrismaService();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        PatientService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [PatientService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<PatientService>(PatientService);
@@ -88,7 +85,9 @@ describe('PatientService', () => {
     it('debe lanzar ConflictException si el email ya existe', async () => {
       prisma.user.findFirst.mockResolvedValue(mockUser);
 
-      await expect(service.create(createDto)).rejects.toThrow(ConflictException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 

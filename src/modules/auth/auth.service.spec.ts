@@ -70,14 +70,20 @@ describe('AuthService', () => {
       expect(result.accessToken).toBe(mockToken);
       expect(result.user.id).toBe(mockUser.id);
       expect(result.user.phone).toBe(mockUser.phone);
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      const findUniqueCalls = prisma.user.findUnique.mock.calls as Array<
+        [unknown]
+      >;
+      expect(findUniqueCalls[0]?.[0]).toEqual({
         where: { phone: mockLoginDto.phone },
       });
       expect(bcrypt.compare).toHaveBeenCalledWith(
         mockLoginDto.password,
         mockUser.password,
       );
-      expect(jwtService.signAsync).toHaveBeenCalledWith({
+      const signAsyncCalls = jwtService.signAsync.mock.calls as Array<
+        [unknown]
+      >;
+      expect(signAsyncCalls[0]?.[0]).toEqual({
         sub: mockUser.id,
         phone: mockUser.phone,
       });
@@ -90,7 +96,7 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       await expect(service.login(mockLoginDto)).rejects.toThrow(
-        'Credenciales inválidas',
+        'invalid-credentials',
       );
     });
 
@@ -104,7 +110,7 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       await expect(service.login(mockLoginDto)).rejects.toThrow(
-        'Usuario sin contraseña configurada',
+        'user-without-password',
       );
     });
 
@@ -116,7 +122,7 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       await expect(service.login(mockLoginDto)).rejects.toThrow(
-        'Credenciales inválidas',
+        'invalid-credentials',
       );
     });
   });
@@ -136,14 +142,17 @@ describe('AuthService', () => {
 
       await service.logout(mockToken, 'user-uuid');
 
-      expect(jwtService.decode).toHaveBeenCalledWith(mockToken);
-      expect(prisma.revokedToken.create).toHaveBeenCalledWith({
-        data: {
-          token: mockToken,
-          userId: 'user-uuid',
-          expiresAt: expect.any(Date),
-        },
-      });
+      const decodeCalls = jwtService.decode.mock.calls as Array<[unknown]>;
+      expect(decodeCalls[0]?.[0]).toBe(mockToken);
+      const createCalls = prisma.revokedToken.create.mock.calls as Array<
+        [unknown]
+      >;
+      const createArg = createCalls[0]?.[0] as
+        | { data?: { token?: unknown; userId?: unknown; expiresAt?: unknown } }
+        | undefined;
+      expect(createArg?.data?.token).toBe(mockToken);
+      expect(createArg?.data?.userId).toBe('user-uuid');
+      expect(createArg?.data?.expiresAt).toEqual(expect.any(Date));
     });
   });
 

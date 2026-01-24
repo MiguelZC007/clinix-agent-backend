@@ -20,7 +20,9 @@ import {
 export class ClinicHistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createClinicHistoryDto: CreateClinicHistoryDto): Promise<ClinicHistoryResponseDto> {
+  async create(
+    createClinicHistoryDto: CreateClinicHistoryDto,
+  ): Promise<ClinicHistoryResponseDto> {
     const appointment = await this.prisma.appointment.findUnique({
       where: { id: createClinicHistoryDto.appointmentId },
       include: {
@@ -31,11 +33,11 @@ export class ClinicHistoryService {
     });
 
     if (!appointment) {
-      throw new NotFoundException('Cita no encontrada');
+      throw new NotFoundException('appointment-not-found');
     }
 
     if (appointment.clinicHistory) {
-      throw new ConflictException('Esta cita ya tiene una historia clínica asociada');
+      throw new ConflictException('appointment-already-has-clinic-history');
     }
 
     const clinicHistory = await this.prisma.clinicHistory.create({
@@ -74,16 +76,18 @@ export class ClinicHistoryService {
                 name: createClinicHistoryDto.prescription.name,
                 description: createClinicHistoryDto.prescription.description,
                 prescriptionMedications: {
-                  create: createClinicHistoryDto.prescription.medications.map((m) => ({
-                    name: m.name,
-                    quantity: m.quantity,
-                    unit: m.unit,
-                    frequency: m.frequency,
-                    duration: m.duration,
-                    indications: m.indications,
-                    administrationRoute: m.administrationRoute,
-                    description: m.description,
-                  })),
+                  create: createClinicHistoryDto.prescription.medications.map(
+                    (m) => ({
+                      name: m.name,
+                      quantity: m.quantity,
+                      unit: m.unit,
+                      frequency: m.frequency,
+                      duration: m.duration,
+                      indications: m.indications,
+                      administrationRoute: m.administrationRoute,
+                      description: m.description,
+                    }),
+                  ),
                 },
               },
             }
@@ -138,7 +142,7 @@ export class ClinicHistoryService {
     });
 
     if (!clinicHistory) {
-      throw new NotFoundException('Historia clínica no encontrada');
+      throw new NotFoundException('clinic-history-not-found');
     }
 
     return this.mapToClinicHistoryResponse(clinicHistory);
@@ -150,7 +154,7 @@ export class ClinicHistoryService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     const clinicHistories = await this.prisma.clinicHistory.findMany({
@@ -243,29 +247,34 @@ export class ClinicHistoryService {
       specialty: clinicHistory.doctor.specialty.name,
     };
 
-    const diagnostics: DiagnosticResponseDto[] = clinicHistory.diagnostics.map((d) => ({
-      id: d.id,
-      name: d.name,
-      description: d.description,
-      createdAt: d.createdAt,
-    }));
+    const diagnostics: DiagnosticResponseDto[] = clinicHistory.diagnostics.map(
+      (d) => ({
+        id: d.id,
+        name: d.name,
+        description: d.description,
+        createdAt: d.createdAt,
+      }),
+    );
 
-    const physicalExams: PhysicalExamResponseDto[] = clinicHistory.physicalExams.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      createdAt: p.createdAt,
-    }));
+    const physicalExams: PhysicalExamResponseDto[] =
+      clinicHistory.physicalExams.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        createdAt: p.createdAt,
+      }));
 
-    const vitalSigns: VitalSignResponseDto[] = clinicHistory.vitalSigns.map((v) => ({
-      id: v.id,
-      name: v.name,
-      value: v.value,
-      unit: v.unit,
-      measurement: v.measurement,
-      description: v.description ?? undefined,
-      createdAt: v.createdAt,
-    }));
+    const vitalSigns: VitalSignResponseDto[] = clinicHistory.vitalSigns.map(
+      (v) => ({
+        id: v.id,
+        name: v.name,
+        value: v.value,
+        unit: v.unit,
+        measurement: v.measurement,
+        description: v.description ?? undefined,
+        createdAt: v.createdAt,
+      }),
+    );
 
     let prescription: PrescriptionResponseDto | undefined;
     if (clinicHistory.prescription) {

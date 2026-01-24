@@ -7,12 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -31,8 +26,14 @@ export class AppointmentController {
     type: AppointmentResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
-  @ApiResponse({ status: 404, description: 'Paciente, doctor o especialidad no encontrado' })
-  @ApiResponse({ status: 409, description: 'Conflicto de horario con otra cita' })
+  @ApiResponse({
+    status: 404,
+    description: 'Paciente, doctor o especialidad no encontrado',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflicto de horario con otra cita',
+  })
   create(
     @Body() createAppointmentDto: CreateAppointmentDto,
   ): Promise<AppointmentResponseDto> {
@@ -59,7 +60,9 @@ export class AppointmentController {
     type: AppointmentResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Cita no encontrada' })
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<AppointmentResponseDto> {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<AppointmentResponseDto> {
     return this.appointmentService.findOne(id);
   }
 
@@ -72,7 +75,10 @@ export class AppointmentController {
     type: AppointmentResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Cita no encontrada' })
-  @ApiResponse({ status: 409, description: 'Conflicto de horario con otra cita' })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflicto de horario con otra cita',
+  })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateAppointmentDto: UpdateAppointmentDto,
@@ -90,7 +96,9 @@ export class AppointmentController {
   })
   @ApiResponse({ status: 400, description: 'La cita no puede ser cancelada' })
   @ApiResponse({ status: 404, description: 'Cita no encontrada' })
-  cancel(@Param('id', ParseUUIDPipe) id: string): Promise<AppointmentResponseDto> {
+  cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<AppointmentResponseDto> {
     return this.appointmentService.cancel(id);
   }
 }

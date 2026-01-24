@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsDateString, IsNotEmpty, IsString, MinLength, MaxLength } from 'class-validator';
+import {
+  IsUUID,
+  IsDateString,
+  IsNotEmpty,
+  IsString,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateAppointmentDto {
   @ApiProperty({
@@ -31,7 +38,10 @@ export class CreateAppointmentDto {
     example: '2026-01-20T09:00:00.000Z',
   })
   @IsNotEmpty({ message: 'La fecha de inicio es requerida' })
-  @IsDateString({}, { message: 'La fecha de inicio debe tener formato ISO 8601' })
+  @IsDateString(
+    {},
+    { message: 'La fecha de inicio debe tener formato ISO 8601' },
+  )
   startAppointment: string;
 
   @ApiProperty({

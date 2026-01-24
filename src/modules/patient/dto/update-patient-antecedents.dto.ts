@@ -34,8 +34,13 @@ export class UpdatePatientAntecedentsDto {
   })
   @IsOptional()
   @IsArray({ message: 'El historial médico debe ser un arreglo' })
-  @IsString({ each: true, message: 'Cada entrada del historial debe ser texto' })
-  @ArrayMaxSize(100, { message: 'No puede tener más de 100 entradas en historial médico' })
+  @IsString({
+    each: true,
+    message: 'Cada entrada del historial debe ser texto',
+  })
+  @ArrayMaxSize(100, {
+    message: 'No puede tener más de 100 entradas en historial médico',
+  })
   medicalHistory?: string[];
 
   @ApiProperty({
@@ -46,7 +51,12 @@ export class UpdatePatientAntecedentsDto {
   })
   @IsOptional()
   @IsArray({ message: 'El historial familiar debe ser un arreglo' })
-  @IsString({ each: true, message: 'Cada entrada del historial familiar debe ser texto' })
-  @ArrayMaxSize(100, { message: 'No puede tener más de 100 entradas en historial familiar' })
+  @IsString({
+    each: true,
+    message: 'Cada entrada del historial familiar debe ser texto',
+  })
+  @ArrayMaxSize(100, {
+    message: 'No puede tener más de 100 entradas en historial familiar',
+  })
   familyHistory?: string[];
 }

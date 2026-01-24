@@ -19,59 +19,76 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: HttpException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const status = exception.getStatus();
+    const status = exception.getStatus() as HttpStatus;
     const exceptionResponse = exception.getResponse();
 
     let problemDetails: ProblemDetailsDto;
 
     if (exception instanceof BadRequestException) {
+      const code = ErrorCode.VALIDATION_ERROR;
       const validationErrors = this.extractValidationErrors(exceptionResponse);
-      const errorInfo = ErrorMessages[ErrorCode.VAL_001];
+      const errorInfo = this.getErrorInfoFromCode(code);
 
       problemDetails = new ProblemDetailsDto({
         type: errorInfo.type,
-        title: errorInfo.title,
+        title: code,
         status,
-        code: ErrorCode.VAL_001,
-        detail: 'Los datos enviados no son válidos',
+        code,
+        detail: code,
         errors: validationErrors,
       });
     } else {
-      const errorCode = this.getErrorCodeFromStatus(status);
-      const errorInfo = ErrorMessages[errorCode] || {
-        type: 'https://api.example.com/errors/unknown',
-        title: 'Error desconocido',
-      };
+      const codeFromException =
+        this.getCodeFromExceptionResponse(exceptionResponse);
+      const code = codeFromException ?? this.getFallbackCodeFromStatus(status);
+      const errorInfo = this.getErrorInfoFromCode(code);
 
       problemDetails = new ProblemDetailsDto({
         type: errorInfo.type,
-        title: errorInfo.title,
+        title: code,
         status,
-        code: errorCode,
-        detail: this.getDetailMessage(exceptionResponse),
+        code,
+        detail: code,
       });
     }
 
     response.status(status).json(problemDetails);
   }
 
+  private getErrorInfoFromCode(code: string): { type: string; title: string } {
+    const messages = ErrorMessages as Record<
+      string,
+      { type: string; title: string }
+    >;
+    return (
+      messages[code] ?? {
+        type: 'https://api.example.com/errors/unknown',
+        title: 'Error desconocido',
+      }
+    );
+  }
+
   private extractValidationErrors(
     exceptionResponse: string | object,
   ): ValidationErrorDto[] {
-    if (typeof exceptionResponse === 'object' && 'message' in exceptionResponse) {
-      const messages = (exceptionResponse as { message: string | string[] }).message;
+    if (
+      typeof exceptionResponse === 'object' &&
+      'message' in exceptionResponse
+    ) {
+      const messages = (exceptionResponse as { message: string | string[] })
+        .message;
 
       if (Array.isArray(messages)) {
         return messages.map((msg) => ({
           field: this.extractFieldFromMessage(msg),
-          message: msg,
+          message: this.getValidationErrorCodeFromMessage(msg),
         }));
       }
 
       return [
         {
           field: 'unknown',
-          message: messages,
+          message: this.getValidationErrorCodeFromMessage(messages),
         },
       ];
     }
@@ -84,33 +101,55 @@ export class HttpExceptionFilter implements ExceptionFilter {
     return match ? match[1] : 'unknown';
   }
 
-  private getDetailMessage(exceptionResponse: string | object): string {
+  private getValidationErrorCodeFromMessage(message: string): string {
+    const normalized = message.toLowerCase();
+    if (
+      normalized.includes('should not be empty') ||
+      normalized.includes('must not be empty') ||
+      normalized.includes('no debe estar vacío') ||
+      normalized.includes('no debe estar vacio') ||
+      normalized.includes('es requerido') ||
+      normalized.includes('is required')
+    ) {
+      return ErrorCode.REQUIRED_FIELD;
+    }
+    return ErrorCode.INVALID_FIELD;
+  }
+
+  private getCodeFromExceptionResponse(
+    exceptionResponse: string | object,
+  ): string | undefined {
     if (typeof exceptionResponse === 'string') {
       return exceptionResponse;
     }
 
-    if (typeof exceptionResponse === 'object' && 'message' in exceptionResponse) {
-      const message = (exceptionResponse as { message: string | string[] }).message;
-      return Array.isArray(message) ? message.join(', ') : message;
+    if (
+      typeof exceptionResponse === 'object' &&
+      exceptionResponse !== null &&
+      'message' in exceptionResponse
+    ) {
+      const message = (exceptionResponse as { message: string | string[] })
+        .message;
+      return typeof message === 'string' ? message : undefined;
     }
 
-    return 'Ha ocurrido un error';
+    return undefined;
   }
 
-  private getErrorCodeFromStatus(status: number): ErrorCode {
+  private getFallbackCodeFromStatus(status: HttpStatus): string {
     switch (status) {
       case HttpStatus.BAD_REQUEST:
-        return ErrorCode.VAL_001;
+        return ErrorCode.VALIDATION_ERROR;
       case HttpStatus.UNAUTHORIZED:
-        return ErrorCode.AUTH_001;
+        return ErrorCode.UNAUTHENTICATED;
       case HttpStatus.FORBIDDEN:
-        return ErrorCode.AUTH_002;
+        return ErrorCode.UNAUTHORIZED;
       case HttpStatus.NOT_FOUND:
-        return ErrorCode.RES_001;
+        return ErrorCode.NOT_FOUND;
       case HttpStatus.CONFLICT:
-        return ErrorCode.RES_002;
+        return ErrorCode.CONFLICT;
       default:
-        return ErrorCode.VAL_001;
+        return ErrorCode.UNKNOWN;
     }
   }
 }

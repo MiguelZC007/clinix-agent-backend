@@ -20,13 +20,30 @@ const patientTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          email: { type: 'string', description: 'Email address of the patient' },
+          email: {
+            type: 'string',
+            description: 'Email address of the patient',
+          },
           name: { type: 'string', description: 'First name of the patient' },
           lastName: { type: 'string', description: 'Last name of the patient' },
-          phone: { type: 'string', description: 'Phone number in international format (e.g., +584241234567)' },
-          password: { type: 'string', description: 'Password for the patient account' },
-          gender: { type: 'string', enum: ['male', 'female'], description: 'Gender of the patient' },
-          birthDate: { type: 'string', description: 'Birth date in ISO 8601 format (e.g., 1990-05-15)' },
+          phone: {
+            type: 'string',
+            description:
+              'Phone number in international format (e.g., +584241234567)',
+          },
+          password: {
+            type: 'string',
+            description: 'Password for the patient account',
+          },
+          gender: {
+            type: 'string',
+            enum: ['male', 'female'],
+            description: 'Gender of the patient',
+          },
+          birthDate: {
+            type: 'string',
+            description: 'Birth date in ISO 8601 format (e.g., 1990-05-15)',
+          },
         },
         required: ['email', 'name', 'lastName', 'phone'],
       },
@@ -48,7 +65,10 @@ const patientTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
         },
         required: ['patientId'],
       },
@@ -62,14 +82,40 @@ const patientTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient to update' },
-          email: { type: 'string', description: 'New email address of the patient' },
-          name: { type: 'string', description: 'New first name of the patient' },
-          lastName: { type: 'string', description: 'New last name of the patient' },
-          phone: { type: 'string', description: 'New phone number of the patient' },
-          password: { type: 'string', description: 'New password for the patient account' },
-          gender: { type: 'string', enum: ['male', 'female'], description: 'New gender of the patient' },
-          birthDate: { type: 'string', description: 'New birth date in ISO 8601 format' },
+          patientId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the patient to update',
+          },
+          email: {
+            type: 'string',
+            description: 'New email address of the patient',
+          },
+          name: {
+            type: 'string',
+            description: 'New first name of the patient',
+          },
+          lastName: {
+            type: 'string',
+            description: 'New last name of the patient',
+          },
+          phone: {
+            type: 'string',
+            description: 'New phone number of the patient',
+          },
+          password: {
+            type: 'string',
+            description: 'New password for the patient account',
+          },
+          gender: {
+            type: 'string',
+            enum: ['male', 'female'],
+            description: 'New gender of the patient',
+          },
+          birthDate: {
+            type: 'string',
+            description: 'New birth date in ISO 8601 format',
+          },
         },
         required: ['patientId'],
       },
@@ -83,7 +129,11 @@ const patientTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient to delete' },
+          patientId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the patient to delete',
+          },
         },
         required: ['patientId'],
       },
@@ -93,11 +143,15 @@ const patientTools: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_patient_antecedents',
-      description: 'Retrieve the medical antecedents of a patient (allergies, medications, medical history, family history)',
+      description:
+        'Retrieve the medical antecedents of a patient (allergies, medications, medical history, family history)',
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
         },
         required: ['patientId'],
       },
@@ -111,11 +165,30 @@ const patientTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
-          allergies: { type: 'array', items: { type: 'string' }, description: 'List of patient allergies' },
-          medications: { type: 'array', items: { type: 'string' }, description: 'List of current medications' },
-          medicalHistory: { type: 'array', items: { type: 'string' }, description: 'List of past medical conditions' },
-          familyHistory: { type: 'array', items: { type: 'string' }, description: 'List of family medical history' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
+          allergies: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of patient allergies',
+          },
+          medications: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of current medications',
+          },
+          medicalHistory: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of past medical conditions',
+          },
+          familyHistory: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of family medical history',
+          },
         },
         required: ['patientId'],
       },
@@ -132,13 +205,35 @@ const appointmentTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
-          doctorId: { type: 'string', description: 'The unique identifier (UUID) of the doctor' },
-          specialtyId: { type: 'string', description: 'The unique identifier (UUID) of the medical specialty' },
-          startAppointment: { type: 'string', description: 'Start date and time in ISO 8601 format' },
-          endAppointment: { type: 'string', description: 'End date and time in ISO 8601 format' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
+          doctorId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the doctor',
+          },
+          specialtyId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the medical specialty',
+          },
+          startAppointment: {
+            type: 'string',
+            description: 'Start date and time in ISO 8601 format',
+          },
+          endAppointment: {
+            type: 'string',
+            description: 'End date and time in ISO 8601 format',
+          },
         },
-        required: ['patientId', 'doctorId', 'specialtyId', 'startAppointment', 'endAppointment'],
+        required: [
+          'patientId',
+          'doctorId',
+          'specialtyId',
+          'startAppointment',
+          'endAppointment',
+        ],
       },
     },
   },
@@ -158,7 +253,10 @@ const appointmentTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          appointmentId: { type: 'string', description: 'The unique identifier (UUID) of the appointment' },
+          appointmentId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the appointment',
+          },
         },
         required: ['appointmentId'],
       },
@@ -172,10 +270,23 @@ const appointmentTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          appointmentId: { type: 'string', description: 'The unique identifier (UUID) of the appointment' },
-          startAppointment: { type: 'string', description: 'New start date and time in ISO 8601 format' },
-          endAppointment: { type: 'string', description: 'New end date and time in ISO 8601 format' },
-          status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed'], description: 'New status' },
+          appointmentId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the appointment',
+          },
+          startAppointment: {
+            type: 'string',
+            description: 'New start date and time in ISO 8601 format',
+          },
+          endAppointment: {
+            type: 'string',
+            description: 'New end date and time in ISO 8601 format',
+          },
+          status: {
+            type: 'string',
+            enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+            description: 'New status',
+          },
         },
         required: ['appointmentId'],
       },
@@ -189,7 +300,11 @@ const appointmentTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          appointmentId: { type: 'string', description: 'The unique identifier (UUID) of the appointment to cancel' },
+          appointmentId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the appointment to cancel',
+          },
         },
         required: ['appointmentId'],
       },
@@ -203,7 +318,10 @@ const appointmentTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
         },
         required: ['patientId'],
       },
@@ -220,17 +338,34 @@ const clinicHistoryTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          appointmentId: { type: 'string', description: 'The unique identifier (UUID) of the associated appointment' },
-          consultationReason: { type: 'string', description: 'The reason for the medical consultation' },
-          symptoms: { type: 'array', items: { type: 'string' }, description: 'List of symptoms reported by the patient' },
-          treatment: { type: 'string', description: 'The prescribed treatment plan' },
+          appointmentId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the associated appointment',
+          },
+          consultationReason: {
+            type: 'string',
+            description: 'The reason for the medical consultation',
+          },
+          symptoms: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of symptoms reported by the patient',
+          },
+          treatment: {
+            type: 'string',
+            description: 'The prescribed treatment plan',
+          },
           diagnostics: {
             type: 'array',
             items: {
               type: 'object',
               properties: {
                 name: { type: 'string', description: 'Name of the diagnosis' },
-                description: { type: 'string', description: 'Detailed description of the diagnosis' },
+                description: {
+                  type: 'string',
+                  description: 'Detailed description of the diagnosis',
+                },
               },
               required: ['name', 'description'],
             },
@@ -241,8 +376,14 @@ const clinicHistoryTools: ChatCompletionTool[] = [
             items: {
               type: 'object',
               properties: {
-                name: { type: 'string', description: 'Name of the physical exam' },
-                description: { type: 'string', description: 'Results or findings of the physical exam' },
+                name: {
+                  type: 'string',
+                  description: 'Name of the physical exam',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Results or findings of the physical exam',
+                },
               },
               required: ['name', 'description'],
             },
@@ -254,10 +395,19 @@ const clinicHistoryTools: ChatCompletionTool[] = [
               type: 'object',
               properties: {
                 name: { type: 'string', description: 'Name of the vital sign' },
-                value: { type: 'string', description: 'Measured value of the vital sign' },
+                value: {
+                  type: 'string',
+                  description: 'Measured value of the vital sign',
+                },
                 unit: { type: 'string', description: 'Unit of measurement' },
-                measurement: { type: 'string', description: 'Method or location of measurement' },
-                description: { type: 'string', description: 'Additional notes about the vital sign' },
+                measurement: {
+                  type: 'string',
+                  description: 'Method or location of measurement',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Additional notes about the vital sign',
+                },
               },
               required: ['name', 'value', 'unit', 'measurement'],
             },
@@ -266,23 +416,61 @@ const clinicHistoryTools: ChatCompletionTool[] = [
           prescription: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Name or title of the prescription' },
-              description: { type: 'string', description: 'General description or notes' },
+              name: {
+                type: 'string',
+                description: 'Name or title of the prescription',
+              },
+              description: {
+                type: 'string',
+                description: 'General description or notes',
+              },
               medications: {
                 type: 'array',
                 items: {
                   type: 'object',
                   properties: {
-                    name: { type: 'string', description: 'Name of the medication' },
-                    quantity: { type: 'number', description: 'Quantity to be taken per dose' },
-                    unit: { type: 'string', description: 'Unit of the medication' },
-                    frequency: { type: 'string', description: 'How often to take the medication' },
-                    duration: { type: 'string', description: 'Duration of the treatment' },
-                    indications: { type: 'string', description: 'Special instructions' },
-                    administrationRoute: { type: 'string', description: 'Route of administration' },
-                    description: { type: 'string', description: 'Additional notes' },
+                    name: {
+                      type: 'string',
+                      description: 'Name of the medication',
+                    },
+                    quantity: {
+                      type: 'number',
+                      description: 'Quantity to be taken per dose',
+                    },
+                    unit: {
+                      type: 'string',
+                      description: 'Unit of the medication',
+                    },
+                    frequency: {
+                      type: 'string',
+                      description: 'How often to take the medication',
+                    },
+                    duration: {
+                      type: 'string',
+                      description: 'Duration of the treatment',
+                    },
+                    indications: {
+                      type: 'string',
+                      description: 'Special instructions',
+                    },
+                    administrationRoute: {
+                      type: 'string',
+                      description: 'Route of administration',
+                    },
+                    description: {
+                      type: 'string',
+                      description: 'Additional notes',
+                    },
                   },
-                  required: ['name', 'quantity', 'unit', 'frequency', 'duration', 'indications', 'administrationRoute'],
+                  required: [
+                    'name',
+                    'quantity',
+                    'unit',
+                    'frequency',
+                    'duration',
+                    'indications',
+                    'administrationRoute',
+                  ],
                 },
                 description: 'List of prescribed medications',
               },
@@ -291,7 +479,15 @@ const clinicHistoryTools: ChatCompletionTool[] = [
             description: 'Medical prescription with medications',
           },
         },
-        required: ['appointmentId', 'consultationReason', 'symptoms', 'treatment', 'diagnostics', 'physicalExams', 'vitalSigns'],
+        required: [
+          'appointmentId',
+          'consultationReason',
+          'symptoms',
+          'treatment',
+          'diagnostics',
+          'physicalExams',
+          'vitalSigns',
+        ],
       },
     },
   },
@@ -311,7 +507,11 @@ const clinicHistoryTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          clinicHistoryId: { type: 'string', description: 'The unique identifier (UUID) of the clinic history record' },
+          clinicHistoryId: {
+            type: 'string',
+            description:
+              'The unique identifier (UUID) of the clinic history record',
+          },
         },
         required: ['clinicHistoryId'],
       },
@@ -325,7 +525,10 @@ const clinicHistoryTools: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          patientId: { type: 'string', description: 'The unique identifier (UUID) of the patient' },
+          patientId: {
+            type: 'string',
+            description: 'The unique identifier (UUID) of the patient',
+          },
         },
         required: ['patientId'],
       },
@@ -378,10 +581,11 @@ REGLAS ESTRICTAS:
     phoneNumber: string,
     userMessage: string,
   ): Promise<string> {
-    const doctorInfo = await this.conversationService.findDoctorByPhone(phoneNumber);
+    const doctorInfo =
+      await this.conversationService.findDoctorByPhone(phoneNumber);
 
     if (!doctorInfo) {
-      throw new NotFoundException('No se encontró un médico registrado con este número de teléfono.');
+      throw new NotFoundException('doctor-not-found-by-phone');
     }
 
     const { conversation, messages: contextMessages } =
@@ -390,7 +594,11 @@ REGLAS ESTRICTAS:
         this.systemPrompt,
       );
 
-    await this.conversationService.addMessage(conversation.id, 'user', userMessage);
+    await this.conversationService.addMessage(
+      conversation.id,
+      'user',
+      userMessage,
+    );
 
     const chatMessages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt },
@@ -400,15 +608,23 @@ REGLAS ESTRICTAS:
 
     const assistantResponse = await this.sendChatCompletion(chatMessages);
 
-    await this.conversationService.addMessage(conversation.id, 'assistant', assistantResponse);
+    await this.conversationService.addMessage(
+      conversation.id,
+      'assistant',
+      assistantResponse,
+    );
 
     return assistantResponse;
   }
 
   private async sendChatCompletion(messages: ChatMessage[]): Promise<string> {
-    console.log(`\n🔵 [OpenAI API] Enviando solicitud a modelo: ${environment.OPENAI_MODEL}`);
-    console.log(`🔵 [OpenAI API] Total mensajes en contexto: ${messages.length}`);
-    
+    console.log(
+      `\n🔵 [OpenAI API] Enviando solicitud a modelo: ${environment.OPENAI_MODEL}`,
+    );
+    console.log(
+      `🔵 [OpenAI API] Total mensajes en contexto: ${messages.length}`,
+    );
+
     const response = await this.openai.chat.completions.create({
       model: environment.OPENAI_MODEL,
       messages: messages.map((m) => ({
@@ -421,28 +637,39 @@ REGLAS ESTRICTAS:
 
     console.log(`🟢 [OpenAI API] Respuesta recibida - ID: ${response.id}`);
     console.log(`🟢 [OpenAI API] Modelo usado: ${response.model}`);
-    console.log(`🟢 [OpenAI API] Tokens usados: ${response.usage?.total_tokens || 'N/A'}`);
+    console.log(
+      `🟢 [OpenAI API] Tokens usados: ${response.usage?.total_tokens || 'N/A'}`,
+    );
 
     const assistantMessage = response.choices[0]?.message;
 
-    if (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
+    if (
+      assistantMessage?.tool_calls &&
+      assistantMessage.tool_calls.length > 0
+    ) {
       return this.handleToolCalls(assistantMessage, messages);
     }
 
-    return assistantMessage?.content || 'No pude procesar tu solicitud. Por favor, intenta de nuevo.';
+    return (
+      assistantMessage?.content ||
+      'No pude procesar tu solicitud. Por favor, intenta de nuevo.'
+    );
   }
 
   private async handleToolCalls(
     assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
     previousMessages: ChatMessage[],
   ): Promise<string> {
-    const toolResults: Array<OpenAI.Chat.Completions.ChatCompletionToolMessageParam> = [];
+    const toolResults: Array<OpenAI.Chat.Completions.ChatCompletionToolMessageParam> =
+      [];
 
     for (const toolCall of assistantMessage.tool_calls || []) {
       if (toolCall.type !== 'function') continue;
 
       const functionName = toolCall.function.name;
-      const functionArgs = JSON.parse(toolCall.function.arguments);
+      const functionArgs = this.safeParseJsonRecord(
+        toolCall.function.arguments,
+      );
 
       const result = await this.executeToolFunction(functionName, functionArgs);
 
@@ -453,25 +680,40 @@ REGLAS ESTRICTAS:
       });
     }
 
-    const followUpMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      ...previousMessages.map((m) => ({
-        role: m.role as 'user' | 'assistant' | 'system',
-        content: m.content,
-      })),
-      {
-        role: 'assistant' as const,
-        content: assistantMessage.content,
-        tool_calls: assistantMessage.tool_calls,
-      },
-      ...toolResults,
-    ];
+    const followUpMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+      [
+        ...previousMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        {
+          role: 'assistant' as const,
+          content: assistantMessage.content,
+          tool_calls: assistantMessage.tool_calls,
+        },
+        ...toolResults,
+      ];
 
     const followUpResponse = await this.openai.chat.completions.create({
       model: environment.OPENAI_MODEL,
       messages: followUpMessages,
     });
 
-    return followUpResponse.choices[0]?.message?.content || 'Operación completada.';
+    return (
+      followUpResponse.choices[0]?.message?.content || 'Operación completada.'
+    );
+  }
+
+  private safeParseJsonRecord(json: string): Record<string, unknown> {
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
   }
 
   private async executeToolFunction(
@@ -490,7 +732,9 @@ REGLAS ESTRICTAS:
             patient: {
               create: {
                 gender: args.gender as string | undefined,
-                birthDate: args.birthDate ? new Date(args.birthDate as string) : undefined,
+                birthDate: args.birthDate
+                  ? new Date(args.birthDate as string)
+                  : undefined,
                 allergies: [],
                 medications: [],
                 medicalHistory: [],
@@ -503,13 +747,21 @@ REGLAS ESTRICTAS:
 
       case 'get_all_patients':
         return this.prisma.patient.findMany({
-          include: { user: { select: { name: true, lastName: true, email: true, phone: true } } },
+          include: {
+            user: {
+              select: { name: true, lastName: true, email: true, phone: true },
+            },
+          },
         });
 
       case 'get_patient':
         return this.prisma.patient.findUnique({
           where: { id: args.patientId as string },
-          include: { user: { select: { name: true, lastName: true, email: true, phone: true } } },
+          include: {
+            user: {
+              select: { name: true, lastName: true, email: true, phone: true },
+            },
+          },
         });
 
       case 'update_patient':
@@ -517,7 +769,9 @@ REGLAS ESTRICTAS:
           where: { id: args.patientId as string },
           data: {
             gender: args.gender as string | undefined,
-            birthDate: args.birthDate ? new Date(args.birthDate as string) : undefined,
+            birthDate: args.birthDate
+              ? new Date(args.birthDate as string)
+              : undefined,
             user: {
               update: {
                 email: args.email as string | undefined,
@@ -574,8 +828,12 @@ REGLAS ESTRICTAS:
       case 'get_all_appointments':
         return this.prisma.appointment.findMany({
           include: {
-            patient: { include: { user: { select: { name: true, lastName: true } } } },
-            doctor: { include: { user: { select: { name: true, lastName: true } } } },
+            patient: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
+            doctor: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
           },
         });
 
@@ -583,8 +841,12 @@ REGLAS ESTRICTAS:
         return this.prisma.appointment.findUnique({
           where: { id: args.appointmentId as string },
           include: {
-            patient: { include: { user: { select: { name: true, lastName: true } } } },
-            doctor: { include: { user: { select: { name: true, lastName: true } } } },
+            patient: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
+            doctor: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
           },
         });
 
@@ -613,7 +875,9 @@ REGLAS ESTRICTAS:
         return this.prisma.appointment.findMany({
           where: { patientId: args.patientId as string },
           include: {
-            doctor: { include: { user: { select: { name: true, lastName: true } } } },
+            doctor: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
           },
         });
 
@@ -634,25 +898,34 @@ REGLAS ESTRICTAS:
             symptoms: args.symptoms as string[],
             treatment: args.treatment as string,
             diagnostics: {
-              create: (args.diagnostics as Array<{ name: string; description: string }>).map((d) => ({
+              create: (
+                args.diagnostics as Array<{ name: string; description: string }>
+              ).map((d) => ({
                 name: d.name,
                 description: d.description,
               })),
             },
             physicalExams: {
-              create: (args.physicalExams as Array<{ name: string; description: string }>).map((p) => ({
+              create: (
+                args.physicalExams as Array<{
+                  name: string;
+                  description: string;
+                }>
+              ).map((p) => ({
                 name: p.name,
                 description: p.description,
               })),
             },
             vitalSigns: {
-              create: (args.vitalSigns as Array<{
-                name: string;
-                value: string;
-                unit: string;
-                measurement: string;
-                description?: string;
-              }>).map((v) => ({
+              create: (
+                args.vitalSigns as Array<{
+                  name: string;
+                  value: string;
+                  unit: string;
+                  measurement: string;
+                  description?: string;
+                }>
+              ).map((v) => ({
                 name: v.name,
                 value: v.value,
                 unit: v.unit,
@@ -667,7 +940,9 @@ REGLAS ESTRICTAS:
       case 'get_all_clinic_histories':
         return this.prisma.clinicHistory.findMany({
           include: {
-            patient: { include: { user: { select: { name: true, lastName: true } } } },
+            patient: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
             diagnostics: true,
             vitalSigns: true,
           },
@@ -677,7 +952,9 @@ REGLAS ESTRICTAS:
         return this.prisma.clinicHistory.findUnique({
           where: { id: args.clinicHistoryId as string },
           include: {
-            patient: { include: { user: { select: { name: true, lastName: true } } } },
+            patient: {
+              include: { user: { select: { name: true, lastName: true } } },
+            },
             diagnostics: true,
             physicalExams: true,
             vitalSigns: true,

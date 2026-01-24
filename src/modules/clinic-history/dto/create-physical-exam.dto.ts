@@ -18,6 +18,8 @@ export class CreatePhysicalExamDto {
   })
   @IsNotEmpty({ message: 'La descripción del examen es requerida' })
   @IsString({ message: 'La descripción debe ser texto' })
-  @MaxLength(1000, { message: 'La descripción no puede exceder 1000 caracteres' })
+  @MaxLength(1000, {
+    message: 'La descripción no puede exceder 1000 caracteres',
+  })
   description: string;
 }

@@ -28,7 +28,9 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  @ApiOperation({ summary: 'Iniciar sesión con número de celular y contraseña' })
+  @ApiOperation({
+    summary: 'Iniciar sesión con número de celular y contraseña',
+  })
   @ApiResponse({
     status: 200,
     description: 'Login exitoso',

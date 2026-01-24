@@ -6,12 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { ClinicHistoryService } from './clinic-history.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
@@ -30,7 +25,10 @@ export class ClinicHistoryController {
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   @ApiResponse({ status: 404, description: 'Cita no encontrada' })
-  @ApiResponse({ status: 409, description: 'La cita ya tiene una historia clínica' })
+  @ApiResponse({
+    status: 409,
+    description: 'La cita ya tiene una historia clínica',
+  })
   create(
     @Body() createClinicHistoryDto: CreateClinicHistoryDto,
   ): Promise<ClinicHistoryResponseDto> {
@@ -57,7 +55,9 @@ export class ClinicHistoryController {
     type: ClinicHistoryResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Historia clínica no encontrada' })
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<ClinicHistoryResponseDto> {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ClinicHistoryResponseDto> {
     return this.clinicHistoryService.findOne(id);
   }
 }

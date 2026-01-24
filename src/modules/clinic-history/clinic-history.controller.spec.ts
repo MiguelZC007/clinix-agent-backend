@@ -10,7 +10,25 @@ import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
 describe('ClinicHistoryController', () => {
   let controller: ClinicHistoryController;
   let patientClinicHistoriesController: PatientClinicHistoriesController;
-  let service: jest.Mocked<ClinicHistoryService>;
+  type MockClinicHistoryService = {
+    create: jest.MockedFunction<
+      (
+        this: void,
+        dto: CreateClinicHistoryDto,
+      ) => Promise<ClinicHistoryResponseDto>
+    >;
+    findAll: jest.MockedFunction<
+      (this: void) => Promise<ClinicHistoryResponseDto[]>
+    >;
+    findOne: jest.MockedFunction<
+      (this: void, id: string) => Promise<ClinicHistoryResponseDto>
+    >;
+    findByPatient: jest.MockedFunction<
+      (this: void, patientId: string) => Promise<ClinicHistoryResponseDto[]>
+    >;
+  };
+
+  let service: MockClinicHistoryService;
 
   const mockClinicHistoryResponse: ClinicHistoryResponseDto = {
     id: 'clinic-history-uuid',
@@ -63,7 +81,7 @@ describe('ClinicHistoryController', () => {
   };
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockClinicHistoryService = {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),

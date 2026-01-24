@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength, MaxLength, IsNotEmpty } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MinLength,
+  MaxLength,
+  IsNotEmpty,
+} from 'class-validator';
 
 export class CreateVitalSignDto {
   @ApiProperty({
@@ -36,7 +42,9 @@ export class CreateVitalSignDto {
   })
   @IsNotEmpty({ message: 'El tipo de medición es requerido' })
   @IsString({ message: 'El tipo de medición debe ser texto' })
-  @MaxLength(100, { message: 'El tipo de medición no puede exceder 100 caracteres' })
+  @MaxLength(100, {
+    message: 'El tipo de medición no puede exceder 100 caracteres',
+  })
   measurement: string;
 
   @ApiProperty({

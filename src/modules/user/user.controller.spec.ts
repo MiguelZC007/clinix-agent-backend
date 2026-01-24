@@ -6,10 +6,19 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 describe('UserController', () => {
   let controller: UserController;
-  let service: jest.Mocked<UserService>;
+  type MockUserService = {
+    create: jest.MockedFunction<(this: void, dto: CreateUserDto) => string>;
+    findAll: jest.MockedFunction<(this: void) => string>;
+    findOne: jest.MockedFunction<(this: void, id: number) => string>;
+    update: jest.MockedFunction<
+      (this: void, id: number, dto: UpdateUserDto) => string
+    >;
+    remove: jest.MockedFunction<(this: void, id: number) => string>;
+  };
+  let service: MockUserService;
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockUserService = {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),

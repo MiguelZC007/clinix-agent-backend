@@ -43,11 +43,16 @@ export class TwilioService {
           userMessage,
         );
       } catch (error) {
-        if (error.status === 404) {
-          assistantResponse = 'No estás registrado como médico en el sistema. Por favor, contacta al administrador.';
+        const status = this.getErrorStatus(error);
+        if (status === 404) {
+          assistantResponse =
+            'No estás registrado como médico en el sistema. Por favor, contacta al administrador.';
         } else {
-          this.logger.error(`Error procesando mensaje con OpenAI: ${error.message}`);
-          assistantResponse = 'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
+          this.logger.error(
+            `Error procesando mensaje con OpenAI: ${this.getErrorMessage(error)}`,
+          );
+          assistantResponse =
+            'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
         }
       }
 
@@ -74,12 +79,10 @@ export class TwilioService {
       };
     } catch (error) {
       this.logger.error(
-        `Error procesando mensaje entrante: ${error.message}`,
-        error.stack,
+        `Error procesando mensaje entrante: ${this.getErrorMessage(error)}`,
+        this.getErrorStack(error),
       );
-      throw new BadRequestException(
-        `Error procesando mensaje: ${error.message}`,
-      );
+      throw new BadRequestException('twilio-incoming-process-failed');
     }
   }
 
@@ -120,20 +123,26 @@ export class TwilioService {
             if (remaining) {
               currentPart = remaining;
             }
-          } else if ((currentPart + ' ' + sentence).length > MAX_MESSAGE_LENGTH) {
+          } else if (
+            (currentPart + ' ' + sentence).length > MAX_MESSAGE_LENGTH
+          ) {
             parts.push(currentPart.trim());
             currentPart = sentence;
           } else {
             currentPart = currentPart ? currentPart + ' ' + sentence : sentence;
           }
         }
-      } else if ((currentPart + '\n\n' + paragraph).length > MAX_MESSAGE_LENGTH) {
+      } else if (
+        (currentPart + '\n\n' + paragraph).length > MAX_MESSAGE_LENGTH
+      ) {
         if (currentPart) {
           parts.push(currentPart.trim());
         }
         currentPart = paragraph;
       } else {
-        currentPart = currentPart ? currentPart + '\n\n' + paragraph : paragraph;
+        currentPart = currentPart
+          ? currentPart + '\n\n' + paragraph
+          : paragraph;
       }
     }
 
@@ -143,7 +152,9 @@ export class TwilioService {
 
     const totalParts = parts.length;
     if (totalParts > 1) {
-      return parts.map((part, index) => `[${index + 1}/${totalParts}]\n${part}`);
+      return parts.map(
+        (part, index) => `[${index + 1}/${totalParts}]\n${part}`,
+      );
     }
 
     return parts;
@@ -154,7 +165,9 @@ export class TwilioService {
       const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
       const toNumber = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
 
-      this.logger.log(`Enviando mensaje de WhatsApp a ${toNumber} (${body.length} chars)`);
+      this.logger.log(
+        `Enviando mensaje de WhatsApp a ${toNumber} (${body.length} chars)`,
+      );
 
       const message = await this.twilioClient.messages.create({
         from: fromNumber,
@@ -171,10 +184,10 @@ export class TwilioService {
       };
     } catch (error) {
       this.logger.error(
-        `Error enviando mensaje de WhatsApp: ${error.message}`,
-        error.stack,
+        `Error enviando mensaje de WhatsApp: ${this.getErrorMessage(error)}`,
+        this.getErrorStack(error),
       );
-      throw new BadRequestException(`Error enviando mensaje: ${error.message}`);
+      throw new BadRequestException('twilio-send-failed');
     }
   }
 
@@ -206,13 +219,33 @@ export class TwilioService {
       };
     } catch (error) {
       this.logger.error(
-        `Error obteniendo estado del mensaje: ${error.message}`,
-        error.stack,
+        `Error obteniendo estado del mensaje: ${this.getErrorMessage(error)}`,
+        this.getErrorStack(error),
       );
-      throw new BadRequestException(
-        `Error obteniendo estado: ${error.message}`,
-      );
+      throw new BadRequestException('twilio-status-fetch-failed');
     }
   }
-}
 
+  private getErrorStatus(error: unknown): number | undefined {
+    if (error && typeof error === 'object' && 'status' in error) {
+      const status = (error as { status?: unknown }).status;
+      return typeof status === 'number' ? status : undefined;
+    }
+    return undefined;
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (error && typeof error === 'object' && 'message' in error) {
+      const message = (error as { message?: unknown }).message;
+      return typeof message === 'string' ? message : 'Unknown error';
+    }
+    return 'Unknown error';
+  }
+
+  private getErrorStack(error: unknown): string | undefined {
+    return error instanceof Error ? error.stack : undefined;
+  }
+}

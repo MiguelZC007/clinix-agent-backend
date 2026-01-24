@@ -37,8 +37,12 @@ export class CreatePrescriptionDto {
     type: [CreatePrescriptionMedicationDto],
   })
   @IsArray({ message: 'Los medicamentos deben ser un arreglo' })
-  @ArrayMinSize(1, { message: 'La receta debe incluir al menos un medicamento' })
-  @ArrayMaxSize(30, { message: 'La receta no puede incluir más de 30 medicamentos' })
+  @ArrayMinSize(1, {
+    message: 'La receta debe incluir al menos un medicamento',
+  })
+  @ArrayMaxSize(30, {
+    message: 'La receta no puede incluir más de 30 medicamentos',
+  })
   @ValidateNested({ each: true })
   @Type(() => CreatePrescriptionMedicationDto)
   medications: CreatePrescriptionMedicationDto[];

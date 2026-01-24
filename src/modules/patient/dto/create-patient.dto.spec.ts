@@ -31,13 +31,19 @@ describe('CreatePatientDto', () => {
 
   describe('address', () => {
     it('debe fallar si address está vacío', async () => {
-      const dto = plainToInstance(CreatePatientDto, { ...validData, address: '' });
+      const dto = plainToInstance(CreatePatientDto, {
+        ...validData,
+        address: '',
+      });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'address')).toBe(true);
     });
 
     it('debe fallar si address tiene menos de 5 caracteres', async () => {
-      const dto = plainToInstance(CreatePatientDto, { ...validData, address: '1234' });
+      const dto = plainToInstance(CreatePatientDto, {
+        ...validData,
+        address: '1234',
+      });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'address')).toBe(true);
     });
@@ -45,7 +51,10 @@ describe('CreatePatientDto', () => {
 
   describe('email', () => {
     it('debe fallar si email está vacío', async () => {
-      const dto = plainToInstance(CreatePatientDto, { ...validData, email: '' });
+      const dto = plainToInstance(CreatePatientDto, {
+        ...validData,
+        email: '',
+      });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'email')).toBe(true);
     });
@@ -77,7 +86,10 @@ describe('CreatePatientDto', () => {
     });
 
     it('debe fallar si nombre tiene menos de 2 caracteres', async () => {
-      const dto = plainToInstance(CreatePatientDto, { ...validData, name: 'A' });
+      const dto = plainToInstance(CreatePatientDto, {
+        ...validData,
+        name: 'A',
+      });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'name')).toBe(true);
     });
@@ -114,7 +126,10 @@ describe('CreatePatientDto', () => {
 
   describe('phone', () => {
     it('debe fallar si teléfono está vacío', async () => {
-      const dto = plainToInstance(CreatePatientDto, { ...validData, phone: '' });
+      const dto = plainToInstance(CreatePatientDto, {
+        ...validData,
+        phone: '',
+      });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'phone')).toBe(true);
     });

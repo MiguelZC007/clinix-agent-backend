@@ -2,11 +2,22 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LoginResponse } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 
 describe('AuthController', () => {
   let controller: AuthController;
-  let service: jest.Mocked<AuthService>;
+
+  type MockAuthService = {
+    login: jest.MockedFunction<
+      (this: void, loginDto: LoginDto) => Promise<LoginResponse>
+    >;
+    logout: jest.MockedFunction<
+      (this: void, token: string, userId: string) => Promise<void>
+    >;
+  };
+
+  let service: MockAuthService;
 
   const mockLoginResponse = {
     accessToken: 'mock-jwt-token',
@@ -36,7 +47,7 @@ describe('AuthController', () => {
   };
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockAuthService = {
       login: jest.fn(),
       logout: jest.fn(),
     };
@@ -56,7 +67,7 @@ describe('AuthController', () => {
 
   describe('login', () => {
     it('debe llamar a authService.login con el DTO correcto', async () => {
-      service.login.mockResolvedValue(mockLoginResponse);
+      service.login.mockResolvedValue(mockLoginResponse as LoginResponse);
 
       const result = await controller.login(mockLoginDto);
 
@@ -66,7 +77,7 @@ describe('AuthController', () => {
 
     it('debe propagar UnauthorizedException si las credenciales son inválidas', async () => {
       service.login.mockRejectedValue(
-        new UnauthorizedException('Credenciales inválidas'),
+        new UnauthorizedException('invalid-credentials'),
       );
 
       await expect(controller.login(mockLoginDto)).rejects.toThrow(
@@ -79,7 +90,18 @@ describe('AuthController', () => {
     it('debe llamar a authService.logout con el token y userId del request', async () => {
       service.logout.mockResolvedValue(undefined);
 
-      const result = await controller.logout(mockRequest as any);
+      const result = await controller.logout(
+        mockRequest as unknown as {
+          user: {
+            id: string;
+            email: string;
+            name: string;
+            lastName: string;
+            phone: string;
+          };
+          token: string;
+        },
+      );
 
       expect(service.logout).toHaveBeenCalledWith(
         mockRequest.token,

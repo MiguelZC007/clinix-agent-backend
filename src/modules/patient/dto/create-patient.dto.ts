@@ -90,6 +90,9 @@ export class CreatePatientDto {
     required: false,
   })
   @IsOptional()
-  @IsDateString({}, { message: 'La fecha de nacimiento debe tener formato ISO 8601' })
+  @IsDateString(
+    {},
+    { message: 'La fecha de nacimiento debe tener formato ISO 8601' },
+  )
   birthDate?: string;
 }

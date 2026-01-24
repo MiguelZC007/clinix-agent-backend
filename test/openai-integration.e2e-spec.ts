@@ -20,7 +20,8 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
     }).compile();
 
     openaiService = moduleFixture.get<OpenaiService>(OpenaiService);
-    conversationService = moduleFixture.get<ConversationService>(ConversationService);
+    conversationService =
+      moduleFixture.get<ConversationService>(ConversationService);
     prisma = moduleFixture.get<PrismaService>(PrismaService);
 
     await setupTestData();
@@ -70,13 +71,19 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
     console.log('\n🧹 Limpiando datos de prueba...');
 
     if (testAppointmentId) {
-      await prisma.clinicHistory.deleteMany({ where: { appointmentId: testAppointmentId } });
+      await prisma.clinicHistory.deleteMany({
+        where: { appointmentId: testAppointmentId },
+      });
       await prisma.appointment.deleteMany({ where: { id: testAppointmentId } });
     }
 
     if (testPatientId) {
-      await prisma.appointment.deleteMany({ where: { patientId: testPatientId } });
-      const patient = await prisma.patient.findUnique({ where: { id: testPatientId } });
+      await prisma.appointment.deleteMany({
+        where: { patientId: testPatientId },
+      });
+      const patient = await prisma.patient.findUnique({
+        where: { id: testPatientId },
+      });
       if (patient) {
         await prisma.patient.delete({ where: { id: testPatientId } });
         await prisma.user.delete({ where: { id: patient.userId } });
@@ -88,7 +95,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
     });
     await prisma.conversation.deleteMany({ where: { doctorId: testDoctorId } });
 
-    const doctor = await prisma.doctor.findUnique({ where: { id: testDoctorId } });
+    const doctor = await prisma.doctor.findUnique({
+      where: { id: testDoctorId },
+    });
     if (doctor) {
       await prisma.doctor.delete({ where: { id: testDoctorId } });
       await prisma.user.delete({ where: { id: doctor.userId } });
@@ -101,8 +110,13 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
 
   async function sendMessage(message: string): Promise<string> {
     console.log(`\n👨‍⚕️ Médico: ${message}`);
-    const response = await openaiService.processMessageFromDoctor(testDoctorPhone, message);
-    console.log(`🤖 Asistente: ${response.substring(0, 500)}${response.length > 500 ? '...' : ''}`);
+    const response = await openaiService.processMessageFromDoctor(
+      testDoctorPhone,
+      message,
+    );
+    console.log(
+      `🤖 Asistente: ${response.substring(0, 500)}${response.length > 500 ? '...' : ''}`,
+    );
     return response;
   }
 
@@ -112,7 +126,8 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
 
   describe('Flujo completo de Anamnesis', () => {
     it('Paso 1: Verificar identificación del doctor', async () => {
-      const doctorInfo = await conversationService.findDoctorByPhone(testDoctorPhone);
+      const doctorInfo =
+        await conversationService.findDoctorByPhone(testDoctorPhone);
 
       expect(doctorInfo).not.toBeNull();
       expect(doctorInfo!.doctorId).toBe(testDoctorId);
@@ -146,7 +161,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
       );
 
       expect(response).toBeDefined();
-      expect(response.toLowerCase()).toMatch(/nombre|datos|paciente|información/i);
+      expect(response.toLowerCase()).toMatch(
+        /nombre|datos|paciente|información/i,
+      );
 
       console.log('\n✅ El asistente solicita información del paciente');
     });
@@ -182,16 +199,20 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
         expect(patient.user.lastName).toBe('García');
         expect(patient.gender).toBe('female');
       } else {
-        console.log('\n⚠️ Paciente aún no registrado, intentando confirmar registro...');
-        
+        console.log(
+          '\n⚠️ Paciente aún no registrado, intentando confirmar registro...',
+        );
+
         await delay(1000);
         const confirmResponse = await sendMessage(
           'Confirmo que deseo registrar al paciente María García con los datos proporcionados. Procede con el registro.',
         );
-        console.log(`🤖 Respuesta de confirmación: ${confirmResponse.substring(0, 300)}...`);
-        
+        console.log(
+          `🤖 Respuesta de confirmación: ${confirmResponse.substring(0, 300)}...`,
+        );
+
         await delay(3000);
-        
+
         const patientRetry = await prisma.patient.findFirst({
           where: {
             user: {
@@ -203,7 +224,7 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
           },
           include: { user: true },
         });
-        
+
         if (patientRetry) {
           testPatientId = patientRetry.id;
           console.log(`\n✅ Paciente registrado con ID: ${testPatientId}`);
@@ -214,7 +235,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
     it('Paso 5: Consultar lista de pacientes', async () => {
       await delay(1000);
 
-      const response = await sendMessage('Muéstrame la lista de todos los pacientes');
+      const response = await sendMessage(
+        'Muéstrame la lista de todos los pacientes',
+      );
 
       expect(response).toBeDefined();
 
@@ -255,9 +278,15 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
       if (updatedPatient) {
         console.log('\n📋 Antecedentes guardados:');
         console.log(`   Alergias: ${updatedPatient.allergies.join(', ')}`);
-        console.log(`   Medicamentos: ${updatedPatient.medications.join(', ')}`);
-        console.log(`   Historial médico: ${updatedPatient.medicalHistory.join(', ')}`);
-        console.log(`   Historial familiar: ${updatedPatient.familyHistory.join(', ')}`);
+        console.log(
+          `   Medicamentos: ${updatedPatient.medications.join(', ')}`,
+        );
+        console.log(
+          `   Historial médico: ${updatedPatient.medicalHistory.join(', ')}`,
+        );
+        console.log(
+          `   Historial familiar: ${updatedPatient.familyHistory.join(', ')}`,
+        );
       }
     });
 
@@ -296,7 +325,7 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
         testAppointmentId = appointment.id;
         console.log(`\n✅ Cita creada con ID: ${testAppointmentId}`);
         console.log(`   Estado: ${appointment.status}`);
-        console.log(`   Inicio: ${appointment.startAppointment}`);
+        console.log(`   Inicio: ${appointment.startAppointment.toISOString()}`);
       }
     });
 
@@ -336,8 +365,12 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
 
       console.log('\n📊 Resumen de la conversación:');
       console.log(`   Total de mensajes: ${conversation!.messages.length}`);
-      console.log(`   Mensajes del usuario: ${conversation!.messages.filter((m) => m.role === 'user').length}`);
-      console.log(`   Mensajes del asistente: ${conversation!.messages.filter((m) => m.role === 'assistant').length}`);
+      console.log(
+        `   Mensajes del usuario: ${conversation!.messages.filter((m) => m.role === 'user').length}`,
+      );
+      console.log(
+        `   Mensajes del asistente: ${conversation!.messages.filter((m) => m.role === 'assistant').length}`,
+      );
 
       if (conversation!.summary) {
         console.log(`   Resumen activo: Sí`);
@@ -347,14 +380,16 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
     it('Paso 10: Verificar que el asistente rechaza solicitudes fuera de alcance', async () => {
       await delay(1000);
 
-      const response = await sendMessage(
-        '¿Cuál es la capital de Francia?',
-      );
+      const response = await sendMessage('¿Cuál es la capital de Francia?');
 
       expect(response).toBeDefined();
-      expect(response.toLowerCase()).toMatch(/no puedo|solo puedo|funciones|médico|pacientes|citas/i);
+      expect(response.toLowerCase()).toMatch(
+        /no puedo|solo puedo|funciones|médico|pacientes|citas/i,
+      );
 
-      console.log('\n✅ El asistente rechazó correctamente la solicitud fuera de alcance');
+      console.log(
+        '\n✅ El asistente rechazó correctamente la solicitud fuera de alcance',
+      );
     });
   });
 
@@ -376,7 +411,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
       });
       console.log(`\n💬 Conversaciones: ${conversations.length}`);
       conversations.forEach((conv, i) => {
-        console.log(`   ${i + 1}. ID: ${conv.id.substring(0, 8)}... | Mensajes: ${conv._count.messages} | Activa: ${conv.isActive}`);
+        console.log(
+          `   ${i + 1}. ID: ${conv.id.substring(0, 8)}... | Mensajes: ${conv._count.messages} | Activa: ${conv.isActive}`,
+        );
       });
 
       if (testPatientId) {
@@ -385,7 +422,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
           include: { user: true },
         });
         console.log(`\n🧑‍🤝‍🧑 Paciente registrado:`);
-        console.log(`   Nombre: ${patient?.user.name} ${patient?.user.lastName}`);
+        console.log(
+          `   Nombre: ${patient?.user.name} ${patient?.user.lastName}`,
+        );
         console.log(`   Email: ${patient?.user.email}`);
         console.log(`   Alergias: ${patient?.allergies.length || 0}`);
         console.log(`   Medicamentos: ${patient?.medications.length || 0}`);
@@ -397,7 +436,9 @@ describe('OpenAI Integration - Anamnesis Flow (e2e)', () => {
         });
         console.log(`\n📅 Cita creada:`);
         console.log(`   Estado: ${appointment?.status}`);
-        console.log(`   Fecha: ${appointment?.startAppointment}`);
+        console.log(
+          `   Fecha: ${appointment?.startAppointment?.toISOString() ?? 'N/A'}`,
+        );
       }
 
       console.log('\n✅ Verificación de base de datos completada');

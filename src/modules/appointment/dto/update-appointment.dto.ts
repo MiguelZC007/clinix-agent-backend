@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsDateString, IsEnum, IsString, MinLength, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsDateString,
+  IsEnum,
+  IsString,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 
 export class UpdateAppointmentDto {
@@ -9,7 +16,10 @@ export class UpdateAppointmentDto {
     required: false,
   })
   @IsOptional()
-  @IsDateString({}, { message: 'La fecha de inicio debe tener formato ISO 8601' })
+  @IsDateString(
+    {},
+    { message: 'La fecha de inicio debe tener formato ISO 8601' },
+  )
   startAppointment?: string;
 
   @ApiProperty({

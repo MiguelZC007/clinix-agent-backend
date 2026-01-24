@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -11,7 +15,9 @@ import { Gender } from 'src/core/enum/gender.enum';
 export class PatientService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createPatientDto: CreatePatientDto): Promise<PatientResponseDto> {
+  async create(
+    createPatientDto: CreatePatientDto,
+  ): Promise<PatientResponseDto> {
     const existingUser = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -22,7 +28,7 @@ export class PatientService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Ya existe un usuario con este email o teléfono');
+      throw new ConflictException('user-already-exists');
     }
 
     const user = await this.prisma.user.create({
@@ -76,20 +82,23 @@ export class PatientService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     return this.mapToPatientResponseFromPatient(patient);
   }
 
-  async update(id: string, updatePatientDto: UpdatePatientDto): Promise<PatientResponseDto> {
+  async update(
+    id: string,
+    updatePatientDto: UpdatePatientDto,
+  ): Promise<PatientResponseDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
       include: { user: true },
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     if (updatePatientDto.email || updatePatientDto.phone) {
@@ -108,7 +117,7 @@ export class PatientService {
       });
 
       if (existingUser) {
-        throw new ConflictException('Ya existe un usuario con este email o teléfono');
+        throw new ConflictException('user-already-exists');
       }
     }
 
@@ -144,7 +153,7 @@ export class PatientService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     await this.prisma.$transaction([
@@ -159,7 +168,7 @@ export class PatientService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     return {
@@ -181,7 +190,7 @@ export class PatientService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     const updatedPatient = await this.prisma.patient.update({
@@ -189,8 +198,10 @@ export class PatientService {
       data: {
         allergies: updateAntecedentsDto.allergies ?? patient.allergies,
         medications: updateAntecedentsDto.medications ?? patient.medications,
-        medicalHistory: updateAntecedentsDto.medicalHistory ?? patient.medicalHistory,
-        familyHistory: updateAntecedentsDto.familyHistory ?? patient.familyHistory,
+        medicalHistory:
+          updateAntecedentsDto.medicalHistory ?? patient.medicalHistory,
+        familyHistory:
+          updateAntecedentsDto.familyHistory ?? patient.familyHistory,
       },
     });
 

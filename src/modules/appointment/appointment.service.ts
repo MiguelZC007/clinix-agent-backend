@@ -18,13 +18,15 @@ import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 export class AppointmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createAppointmentDto: CreateAppointmentDto): Promise<AppointmentResponseDto> {
+  async create(
+    createAppointmentDto: CreateAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: createAppointmentDto.patientId },
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     const doctor = await this.prisma.doctor.findUnique({
@@ -33,7 +35,7 @@ export class AppointmentService {
     });
 
     if (!doctor) {
-      throw new NotFoundException('Doctor no encontrado');
+      throw new NotFoundException('doctor-not-found');
     }
 
     const specialty = await this.prisma.specialty.findUnique({
@@ -41,22 +43,22 @@ export class AppointmentService {
     });
 
     if (!specialty) {
-      throw new NotFoundException('Especialidad no encontrada');
+      throw new NotFoundException('specialty-not-found');
     }
 
     const startDate = new Date(createAppointmentDto.startAppointment);
     const endDate = new Date(createAppointmentDto.endAppointment);
 
     if (startDate >= endDate) {
-      throw new BadRequestException(
-        'La fecha de inicio debe ser anterior a la fecha de fin',
-      );
+      throw new BadRequestException('invalid-date-range');
     }
 
     const conflictingAppointment = await this.prisma.appointment.findFirst({
       where: {
         doctorId: createAppointmentDto.doctorId,
-        status: { in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED] },
+        status: {
+          in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+        },
         OR: [
           {
             startAppointment: { lte: startDate },
@@ -75,7 +77,7 @@ export class AppointmentService {
     });
 
     if (conflictingAppointment) {
-      throw new ConflictException('El doctor ya tiene una cita en este horario');
+      throw new ConflictException('appointment-conflict');
     }
 
     const appointment = await this.prisma.appointment.create({
@@ -106,7 +108,9 @@ export class AppointmentService {
       orderBy: { startAppointment: 'desc' },
     });
 
-    return appointments.map((appointment) => this.mapToAppointmentResponse(appointment));
+    return appointments.map((appointment) =>
+      this.mapToAppointmentResponse(appointment),
+    );
   }
 
   async findOne(id: string): Promise<AppointmentResponseDto> {
@@ -119,7 +123,7 @@ export class AppointmentService {
     });
 
     if (!appointment) {
-      throw new NotFoundException('Cita no encontrada');
+      throw new NotFoundException('appointment-not-found');
     }
 
     return this.mapToAppointmentResponse(appointment);
@@ -134,10 +138,13 @@ export class AppointmentService {
     });
 
     if (!existingAppointment) {
-      throw new NotFoundException('Cita no encontrada');
+      throw new NotFoundException('appointment-not-found');
     }
 
-    if (updateAppointmentDto.startAppointment || updateAppointmentDto.endAppointment) {
+    if (
+      updateAppointmentDto.startAppointment ||
+      updateAppointmentDto.endAppointment
+    ) {
       const startDate = updateAppointmentDto.startAppointment
         ? new Date(updateAppointmentDto.startAppointment)
         : existingAppointment.startAppointment;
@@ -146,16 +153,16 @@ export class AppointmentService {
         : existingAppointment.endAppointment;
 
       if (startDate >= endDate) {
-        throw new BadRequestException(
-          'La fecha de inicio debe ser anterior a la fecha de fin',
-        );
+        throw new BadRequestException('invalid-date-range');
       }
 
       const conflictingAppointment = await this.prisma.appointment.findFirst({
         where: {
           id: { not: id },
           doctorId: existingAppointment.doctorId,
-          status: { in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED] },
+          status: {
+            in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+          },
           OR: [
             {
               startAppointment: { lte: startDate },
@@ -174,7 +181,7 @@ export class AppointmentService {
       });
 
       if (conflictingAppointment) {
-        throw new ConflictException('El doctor ya tiene una cita en este horario');
+        throw new ConflictException('appointment-conflict');
       }
     }
 
@@ -205,15 +212,17 @@ export class AppointmentService {
     });
 
     if (!existingAppointment) {
-      throw new NotFoundException('Cita no encontrada');
+      throw new NotFoundException('appointment-not-found');
     }
 
-    if (existingAppointment.status === StatusAppointment.CANCELLED) {
-      throw new BadRequestException('La cita ya está cancelada');
+    const appointmentStatus = existingAppointment.status as StatusAppointment;
+
+    if (appointmentStatus === StatusAppointment.CANCELLED) {
+      throw new BadRequestException('appointment-already-cancelled');
     }
 
-    if (existingAppointment.status === StatusAppointment.COMPLETED) {
-      throw new BadRequestException('No se puede cancelar una cita completada');
+    if (appointmentStatus === StatusAppointment.COMPLETED) {
+      throw new BadRequestException('appointment-cannot-cancel-completed');
     }
 
     const appointment = await this.prisma.appointment.update({
@@ -234,7 +243,7 @@ export class AppointmentService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
+      throw new NotFoundException('patient-not-found');
     }
 
     const appointments = await this.prisma.appointment.findMany({
@@ -246,7 +255,9 @@ export class AppointmentService {
       orderBy: { startAppointment: 'desc' },
     });
 
-    return appointments.map((appointment) => this.mapToAppointmentResponse(appointment));
+    return appointments.map((appointment) =>
+      this.mapToAppointmentResponse(appointment),
+    );
   }
 
   private mapToAppointmentResponse(appointment: {

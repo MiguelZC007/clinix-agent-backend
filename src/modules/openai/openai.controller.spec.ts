@@ -4,10 +4,15 @@ import { OpenaiService } from './openai.service';
 
 describe('OpenaiController', () => {
   let controller: OpenaiController;
-  let service: jest.Mocked<OpenaiService>;
+  type MockOpenaiService = {
+    processMessageFromDoctor: jest.MockedFunction<
+      (this: void, phone: string, message: string) => Promise<string>
+    >;
+  };
+  let service: MockOpenaiService;
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockOpenaiService = {
       processMessageFromDoctor: jest.fn(),
     };
 

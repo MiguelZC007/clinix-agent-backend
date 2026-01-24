@@ -13,12 +13,17 @@ export interface Response<T> {
 }
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponseDto<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponseDto<T>> {
+export class ResponseInterceptor<T>
+  implements NestInterceptor<T, ApiResponseDto<T>>
+{
+  intercept(
+    context: ExecutionContext,
+    next: CallHandler<T>,
+  ): Observable<ApiResponseDto<T>> {
     return next.handle().pipe(
-      map((data) => {
+      map((data: T) => {
         if (data instanceof ApiResponseDto) {
-          return data;
+          return data as ApiResponseDto<T>;
         }
         return ApiResponseDto.ok(data);
       }),

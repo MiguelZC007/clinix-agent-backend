@@ -28,17 +28,20 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException('invalid-credentials');
     }
 
     if (!user.password) {
-      throw new UnauthorizedException('Usuario sin contraseña configurada');
+      throw new UnauthorizedException('user-without-password');
     }
 
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      user.password,
+    );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException('invalid-credentials');
     }
 
     const payload = { sub: user.id, phone: user.phone };
@@ -57,8 +60,9 @@ export class AuthService {
   }
 
   async logout(token: string, userId: string): Promise<void> {
-    const decoded = this.jwtService.decode(token) as { exp: number };
-    const expiresAt = new Date(decoded.exp * 1000);
+    const decoded: unknown = this.jwtService.decode(token);
+    const exp = this.getExpFromDecodedToken(decoded);
+    const expiresAt = new Date(exp * 1000);
 
     await this.prisma.revokedToken.create({
       data: {
@@ -83,5 +87,15 @@ export class AuthService {
   async hashPassword(password: string): Promise<string> {
     const saltRounds = 10;
     return bcrypt.hash(password, saltRounds);
+  }
+
+  private getExpFromDecodedToken(decoded: unknown): number {
+    if (decoded && typeof decoded === 'object' && 'exp' in decoded) {
+      const exp = (decoded as { exp?: unknown }).exp;
+      if (typeof exp === 'number') {
+        return exp;
+      }
+    }
+    throw new UnauthorizedException('token-invalid-or-expired');
   }
 }

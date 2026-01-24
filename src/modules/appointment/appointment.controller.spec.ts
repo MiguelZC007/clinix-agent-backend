@@ -12,7 +12,33 @@ import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 describe('AppointmentController', () => {
   let controller: AppointmentController;
   let patientAppointmentsController: PatientAppointmentsController;
-  let service: jest.Mocked<AppointmentService>;
+
+  type MockAppointmentService = {
+    create: jest.MockedFunction<
+      (this: void, dto: CreateAppointmentDto) => Promise<AppointmentResponseDto>
+    >;
+    findAll: jest.MockedFunction<
+      (this: void) => Promise<AppointmentResponseDto[]>
+    >;
+    findOne: jest.MockedFunction<
+      (this: void, id: string) => Promise<AppointmentResponseDto>
+    >;
+    update: jest.MockedFunction<
+      (
+        this: void,
+        id: string,
+        dto: UpdateAppointmentDto,
+      ) => Promise<AppointmentResponseDto>
+    >;
+    cancel: jest.MockedFunction<
+      (this: void, id: string) => Promise<AppointmentResponseDto>
+    >;
+    findByPatient: jest.MockedFunction<
+      (this: void, patientId: string) => Promise<AppointmentResponseDto[]>
+    >;
+  };
+
+  let service: MockAppointmentService;
 
   const mockAppointmentResponse: AppointmentResponseDto = {
     id: 'appointment-uuid',
@@ -39,7 +65,7 @@ describe('AppointmentController', () => {
   };
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockAppointmentService = {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
@@ -72,7 +98,7 @@ describe('AppointmentController', () => {
         specialtyId: 'specialty-uuid',
         startAppointment: '2026-01-20T09:00:00.000Z',
         endAppointment: '2026-01-20T09:30:00.000Z',
-      reason: 'Consulta de control',
+        reason: 'Consulta de control',
       };
 
       service.create.mockResolvedValue(mockAppointmentResponse);
@@ -120,7 +146,10 @@ describe('AppointmentController', () => {
 
       const result = await controller.update('appointment-uuid', updateDto);
 
-      expect(service.update).toHaveBeenCalledWith('appointment-uuid', updateDto);
+      expect(service.update).toHaveBeenCalledWith(
+        'appointment-uuid',
+        updateDto,
+      );
       expect(result.status).toBe(StatusAppointment.CONFIRMED);
     });
   });

@@ -1,7 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsString,
-  IsNumber,
   IsOptional,
   MinLength,
   MaxLength,
@@ -65,7 +64,9 @@ export class CreatePrescriptionMedicationDto {
   })
   @IsNotEmpty({ message: 'Las indicaciones son requeridas' })
   @IsString({ message: 'Las indicaciones deben ser texto' })
-  @MaxLength(500, { message: 'Las indicaciones no pueden exceder 500 caracteres' })
+  @MaxLength(500, {
+    message: 'Las indicaciones no pueden exceder 500 caracteres',
+  })
   indications: string;
 
   @ApiProperty({
@@ -74,7 +75,9 @@ export class CreatePrescriptionMedicationDto {
   })
   @IsNotEmpty({ message: 'La vía de administración es requerida' })
   @IsString({ message: 'La vía de administración debe ser texto' })
-  @MaxLength(50, { message: 'La vía de administración no puede exceder 50 caracteres' })
+  @MaxLength(50, {
+    message: 'La vía de administración no puede exceder 50 caracteres',
+  })
   administrationRoute: string;
 
   @ApiProperty({

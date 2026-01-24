@@ -78,8 +78,12 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
     try {
       if (testPatientId) {
-        await prisma.appointment.deleteMany({ where: { patientId: testPatientId } });
-        const patient = await prisma.patient.findUnique({ where: { id: testPatientId } });
+        await prisma.appointment.deleteMany({
+          where: { patientId: testPatientId },
+        });
+        const patient = await prisma.patient.findUnique({
+          where: { id: testPatientId },
+        });
         if (patient) {
           await prisma.patient.delete({ where: { id: testPatientId } });
           await prisma.user.delete({ where: { id: patient.userId } });
@@ -89,9 +93,13 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
       await prisma.message.deleteMany({
         where: { conversation: { doctorId: testDoctorId } },
       });
-      await prisma.conversation.deleteMany({ where: { doctorId: testDoctorId } });
+      await prisma.conversation.deleteMany({
+        where: { doctorId: testDoctorId },
+      });
 
-      const doctor = await prisma.doctor.findUnique({ where: { id: testDoctorId } });
+      const doctor = await prisma.doctor.findUnique({
+        where: { id: testDoctorId },
+      });
       if (doctor) {
         await prisma.doctor.delete({ where: { id: testDoctorId } });
         await prisma.user.delete({ where: { id: doctor.userId } });
@@ -99,10 +107,30 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       await prisma.specialty.deleteMany({ where: { id: testSpecialtyId } });
     } catch (error) {
-      console.log('   ⚠️ Error durante limpieza:', error.message);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.log('   ⚠️ Error durante limpieza:', message);
     }
 
     console.log('   ✅ Limpieza completada\n');
+  }
+
+  type WebhookResponseBody = {
+    success?: unknown;
+    data?: {
+      from?: unknown;
+      responsePartsCount?: unknown;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+
+  function getBody(response: request.Response): WebhookResponseBody {
+    return response.body as unknown as WebhookResponseBody;
+  }
+
+  function getResponsePartsCount(body: WebhookResponseBody): number {
+    const count = body.data?.responsePartsCount;
+    return typeof count === 'number' ? count : 0;
   }
 
   function createWebhookPayload(message: string): Record<string, string> {
@@ -118,20 +146,29 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     };
   }
 
-  async function sendWebhookMessage(message: string): Promise<request.Response> {
+  async function sendWebhookMessage(
+    message: string,
+  ): Promise<request.Response> {
     console.log('\n' + '-'.repeat(50));
     console.log(`👨‍⚕️ MÉDICO: ${message}`);
     console.log('-'.repeat(50));
 
     const payload = createWebhookPayload(message);
 
-    const response = await request(app.getHttpServer())
+    const server = app.getHttpServer() as unknown as Parameters<
+      typeof request
+    >[0];
+    const response = await request(server)
       .post('/twilio/webhook/whatsapp')
       .send(payload)
       .expect(200);
 
-    console.log(`🤖 ASISTENTE: ${response.body.data?.responsePartsCount > 1 ? '[Múltiples mensajes]' : ''}`);
-    
+    const body = getBody(response);
+    const responsePartsCount = getResponsePartsCount(body);
+    console.log(
+      `🤖 ASISTENTE: ${responsePartsCount > 1 ? '[Múltiples mensajes]' : ''}`,
+    );
+
     return response;
   }
 
@@ -140,12 +177,13 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
   }
 
   describe('Flujo completo via Webhook HTTP', () => {
-    
     it('Paso 1: Saludo inicial via webhook', async () => {
       const response = await sendWebhookMessage('Hola, buenos días');
 
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.from).toContain(testDoctorPhone);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
+      const from = typeof body.data?.from === 'string' ? body.data.from : '';
+      expect(from).toContain(testDoctorPhone);
 
       const conversation = await prisma.conversation.findFirst({
         where: { doctorId: testDoctorId, isActive: true },
@@ -153,7 +191,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
       expect(conversation).not.toBeNull();
 
       console.log('✅ Webhook procesado correctamente');
-      console.log(`   Conversación creada: ${conversation?.id.substring(0, 8)}...`);
+      console.log(
+        `   Conversación creada: ${conversation?.id.substring(0, 8)}...`,
+      );
     }, 30000);
 
     it('Paso 2: Solicitar registro de paciente', async () => {
@@ -163,7 +203,8 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
         'Necesito registrar un paciente nuevo que llegó a consulta',
       );
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       console.log('✅ Asistente solicitó información del paciente');
     }, 30000);
@@ -175,7 +216,8 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
         'El paciente es Pedro Ramírez, email pedro.ramirez@email.com, teléfono +584147654321, masculino, nacido el 10 de junio de 1980. No tiene alergias, no toma medicamentos, sin antecedentes médicos ni familiares relevantes. Confirmo el registro.',
       );
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       await delay(3000);
 
@@ -193,10 +235,14 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       if (patient) {
         testPatientId = patient.id;
-        console.log(`✅ Paciente registrado en BD: ${patient.user.name} ${patient.user.lastName}`);
+        console.log(
+          `✅ Paciente registrado en BD: ${patient.user.name} ${patient.user.lastName}`,
+        );
         console.log(`   ID: ${testPatientId}`);
       } else {
-        console.log('⏳ Paciente pendiente de registro (requiere confirmación adicional)');
+        console.log(
+          '⏳ Paciente pendiente de registro (requiere confirmación adicional)',
+        );
       }
     }, 60000);
 
@@ -212,7 +258,8 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
         'Sí, confirmo. Procede con el registro del paciente Pedro Ramírez.',
       );
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       await delay(3000);
 
@@ -230,7 +277,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       if (patient) {
         testPatientId = patient.id;
-        console.log(`✅ Paciente registrado tras confirmación: ${patient.user.name} ${patient.user.lastName}`);
+        console.log(
+          `✅ Paciente registrado tras confirmación: ${patient.user.name} ${patient.user.lastName}`,
+        );
       }
     }, 30000);
 
@@ -239,10 +288,13 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       const response = await sendWebhookMessage('Dame la lista de pacientes');
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       const patients = await prisma.patient.findMany();
-      console.log(`✅ Consulta ejecutada - Total pacientes en BD: ${patients.length}`);
+      console.log(
+        `✅ Consulta ejecutada - Total pacientes en BD: ${patients.length}`,
+      );
     }, 30000);
 
     it('Paso 6: Actualizar antecedentes del paciente', async () => {
@@ -257,7 +309,8 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
         `Actualiza los antecedentes del paciente ${testPatientId}: alergia a la aspirina, toma enalapril 10mg diario, tiene historial de hipertensión, y antecedentes familiares de diabetes. Confirmo la actualización.`,
       );
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       await delay(2000);
 
@@ -279,7 +332,8 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       const response = await sendWebhookMessage('¿Cómo está el clima hoy?');
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
       console.log('✅ Asistente rechazó pregunta fuera de alcance');
     }, 30000);
@@ -302,8 +356,12 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
       console.log('='.repeat(60));
       console.log(`   Conversación ID: ${conversation!.id.substring(0, 8)}...`);
       console.log(`   Total mensajes: ${conversation!.messages.length}`);
-      console.log(`   Mensajes del médico: ${conversation!.messages.filter((m) => m.role === 'user').length}`);
-      console.log(`   Mensajes del asistente: ${conversation!.messages.filter((m) => m.role === 'assistant').length}`);
+      console.log(
+        `   Mensajes del médico: ${conversation!.messages.filter((m) => m.role === 'user').length}`,
+      );
+      console.log(
+        `   Mensajes del asistente: ${conversation!.messages.filter((m) => m.role === 'assistant').length}`,
+      );
       console.log(`   Resumen activo: ${conversation!.summary ? 'Sí' : 'No'}`);
 
       if (testPatientId) {
@@ -311,7 +369,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
           where: { id: testPatientId },
           include: { user: true },
         });
-        console.log(`\n   Paciente registrado: ${patient?.user.name} ${patient?.user.lastName}`);
+        console.log(
+          `\n   Paciente registrado: ${patient?.user.name} ${patient?.user.lastName}`,
+        );
         console.log(`   Email: ${patient?.user.email}`);
         console.log(`   Alergias: ${patient?.allergies.length || 0}`);
         console.log(`   Medicamentos: ${patient?.medications.length || 0}`);
@@ -329,10 +389,14 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
         'Dame información detallada sobre cómo funciona el sistema de registro de pacientes, las citas médicas y las historias clínicas',
       );
 
-      expect(response.body.success).toBe(true);
+      const body = getBody(response);
+      expect(body.success).toBe(true);
 
-      if (response.body.data.responsePartsCount > 1) {
-        console.log(`✅ Respuesta larga dividida en ${response.body.data.responsePartsCount} partes`);
+      const responsePartsCount = getResponsePartsCount(body);
+      if (responsePartsCount > 1) {
+        console.log(
+          `✅ Respuesta larga dividida en ${responsePartsCount} partes`,
+        );
       } else {
         console.log('✅ Respuesta enviada en un solo mensaje');
       }

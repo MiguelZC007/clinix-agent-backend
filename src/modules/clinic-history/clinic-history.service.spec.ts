@@ -99,7 +99,9 @@ describe('ClinicHistoryService', () => {
       consultationReason: 'Dolor de cabeza',
       symptoms: ['dolor', 'mareos'],
       treatment: 'Reposo y medicación',
-      diagnostics: [{ name: 'Migraña', description: 'Dolor de cabeza crónico' }],
+      diagnostics: [
+        { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+      ],
       physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
       vitalSigns: [
         {
@@ -124,7 +126,9 @@ describe('ClinicHistoryService', () => {
     it('debe lanzar NotFoundException si la cita no existe', async () => {
       prisma.appointment.findUnique.mockResolvedValue(null);
 
-      await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar ConflictException si la cita ya tiene historia clínica', async () => {
@@ -133,7 +137,9 @@ describe('ClinicHistoryService', () => {
         clinicHistory: mockClinicHistory,
       });
 
-      await expect(service.create(createDto)).rejects.toThrow(ConflictException);
+      await expect(service.create(createDto)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 

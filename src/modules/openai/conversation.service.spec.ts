@@ -134,7 +134,10 @@ describe('ConversationService', () => {
     });
 
     it('debe retornar null si usuario no tiene doctor asociado', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({ ...mockUser, doctor: null });
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...mockUser,
+        doctor: null,
+      });
 
       const result = await service.findDoctorByPhone('+584241234567');
 
@@ -166,7 +169,12 @@ describe('ConversationService', () => {
         lastActivityAt: new Date(),
         messages: [
           { id: '1', role: 'user', content: 'Hola', createdAt: new Date() },
-          { id: '2', role: 'assistant', content: 'Hola, ¿en qué puedo ayudarte?', createdAt: new Date() },
+          {
+            id: '2',
+            role: 'assistant',
+            content: 'Hola, ¿en qué puedo ayudarte?',
+            createdAt: new Date(),
+          },
         ],
       };
       mockPrisma.conversation.findFirst.mockResolvedValue(recentConversation);
@@ -179,10 +187,14 @@ describe('ConversationService', () => {
 
       expect(result.conversation.id).toBe('conversation-uuid');
       expect(mockPrisma.conversation.create).not.toHaveBeenCalled();
-      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
-        where: { id: 'conversation-uuid' },
-        data: { lastActivityAt: expect.any(Date) },
-      });
+      const updateCalls = mockPrisma.conversation.update.mock.calls as Array<
+        [unknown]
+      >;
+      const updateArg = updateCalls[0]?.[0] as
+        | { where?: { id?: unknown }; data?: { lastActivityAt?: unknown } }
+        | undefined;
+      expect(updateArg?.where?.id).toBe('conversation-uuid');
+      expect(updateArg?.data?.lastActivityAt).toEqual(expect.any(Date));
     });
 
     it('debe crear nueva conversación si la sesión expiró (más de 30 minutos)', async () => {
@@ -195,7 +207,10 @@ describe('ConversationService', () => {
       };
 
       mockPrisma.conversation.findFirst.mockResolvedValue(expiredConversation);
-      mockPrisma.conversation.update.mockResolvedValue({ ...expiredConversation, isActive: false });
+      mockPrisma.conversation.update.mockResolvedValue({
+        ...expiredConversation,
+        isActive: false,
+      });
       mockPrisma.conversation.create.mockResolvedValue({
         ...mockConversation,
         id: 'new-conversation-uuid',
@@ -218,12 +233,20 @@ describe('ConversationService', () => {
     it('debe incluir resumen en mensajes de contexto si existe', async () => {
       const conversationWithSummary = {
         ...mockConversation,
-        summary: 'Resumen de conversación anterior: Se registró un paciente Juan',
+        summary:
+          'Resumen de conversación anterior: Se registró un paciente Juan',
         messages: [
-          { id: '1', role: 'user', content: 'Mensaje reciente', createdAt: new Date() },
+          {
+            id: '1',
+            role: 'user',
+            content: 'Mensaje reciente',
+            createdAt: new Date(),
+          },
         ],
       };
-      mockPrisma.conversation.findFirst.mockResolvedValue(conversationWithSummary);
+      mockPrisma.conversation.findFirst.mockResolvedValue(
+        conversationWithSummary,
+      );
       mockPrisma.conversation.update.mockResolvedValue(conversationWithSummary);
 
       const result = await service.getOrCreateActiveConversation(
@@ -231,10 +254,10 @@ describe('ConversationService', () => {
         'System prompt',
       );
 
-      expect(result.messages[0]).toEqual({
-        role: 'system',
-        content: expect.stringContaining('Resumen de conversación anterior'),
-      });
+      expect(result.messages[0]?.role).toBe('system');
+      const content = result.messages[0]?.content;
+      expect(typeof content).toBe('string');
+      expect(content).toContain('Resumen de conversación anterior');
     });
   });
 
@@ -256,17 +279,30 @@ describe('ConversationService', () => {
         messages: [mockMessage],
       });
 
-      const result = await service.addMessage('conversation-uuid', 'user', 'Hola');
+      const result = await service.addMessage(
+        'conversation-uuid',
+        'user',
+        'Hola',
+      );
 
       expect(result).toEqual(mockMessage);
-      expect(mockPrisma.message.create).toHaveBeenCalledWith({
-        data: {
-          conversationId: 'conversation-uuid',
-          role: 'user',
-          content: 'Hola',
-          tokenCount: expect.any(Number),
-        },
-      });
+      const createCalls = mockPrisma.message.create.mock.calls as Array<
+        [unknown]
+      >;
+      const createArg = createCalls[0]?.[0] as
+        | {
+            data?: {
+              conversationId?: unknown;
+              role?: unknown;
+              content?: unknown;
+              tokenCount?: unknown;
+            };
+          }
+        | undefined;
+      expect(createArg?.data?.conversationId).toBe('conversation-uuid');
+      expect(createArg?.data?.role).toBe('user');
+      expect(createArg?.data?.content).toBe('Hola');
+      expect(createArg?.data?.tokenCount).toEqual(expect.any(Number));
     });
 
     it('debe estimar tokens correctamente', async () => {
@@ -282,11 +318,13 @@ describe('ConversationService', () => {
 
       await service.addMessage('conversation-uuid', 'user', longMessage);
 
-      expect(mockPrisma.message.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          tokenCount: 25,
-        }),
-      });
+      const createCalls = mockPrisma.message.create.mock.calls as Array<
+        [unknown]
+      >;
+      const createArg = createCalls[0]?.[0] as
+        | { data?: { tokenCount?: unknown } }
+        | undefined;
+      expect(createArg?.data?.tokenCount).toBe(25);
     });
   });
 
@@ -320,8 +358,12 @@ describe('ConversationService', () => {
         messages: manyMessages,
       };
 
-      mockPrisma.conversation.findFirst.mockResolvedValue(conversationWithManyMessages);
-      mockPrisma.conversation.update.mockResolvedValue(conversationWithManyMessages);
+      mockPrisma.conversation.findFirst.mockResolvedValue(
+        conversationWithManyMessages,
+      );
+      mockPrisma.conversation.update.mockResolvedValue(
+        conversationWithManyMessages,
+      );
 
       const result = await service.getOrCreateActiveConversation(
         'doctor-uuid',

@@ -11,12 +11,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { PatientService } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -38,7 +33,9 @@ export class PatientController {
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   @ApiResponse({ status: 409, description: 'Email o teléfono ya existe' })
-  create(@Body() createPatientDto: CreatePatientDto): Promise<PatientResponseDto> {
+  create(
+    @Body() createPatientDto: CreatePatientDto,
+  ): Promise<PatientResponseDto> {
     return this.patientService.create(createPatientDto);
   }
 

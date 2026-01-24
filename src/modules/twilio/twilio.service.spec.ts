@@ -66,7 +66,9 @@ Tercer párrafo que contiene conclusiones.`;
     });
 
     it('debe agregar indicador de parte cuando hay múltiples mensajes', () => {
-      const veryLongMessage = Array(50).fill('Este es un párrafo largo. ').join('\n\n');
+      const veryLongMessage = Array(50)
+        .fill('Este es un párrafo largo. ')
+        .join('\n\n');
       const result = service.splitMessage(veryLongMessage);
 
       if (result.length > 1) {
@@ -109,9 +111,15 @@ Tercera parte final.`;
         .map((part) => part.replace(/^\[\d+\/\d+\]\n/, ''))
         .join('');
 
-      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Primera parte');
-      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Segunda parte');
-      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain('Tercera parte');
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain(
+        'Primera parte',
+      );
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain(
+        'Segunda parte',
+      );
+      expect(reconstructed.replace(/\s+/g, ' ').trim()).toContain(
+        'Tercera parte',
+      );
     });
   });
 
@@ -140,7 +148,9 @@ Tercera parte final.`;
     it('debe manejar error cuando doctor no está registrado', async () => {
       const notFoundError = new Error('No encontrado');
       (notFoundError as { status?: number }).status = 404;
-      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(notFoundError);
+      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(
+        notFoundError,
+      );
 
       const webhookData = {
         MessageSid: 'SM123',
@@ -173,7 +183,9 @@ Tercera parte final.`;
 
     it('debe dividir respuestas largas en múltiples mensajes', async () => {
       const longResponse = 'Respuesta muy larga. '.repeat(100);
-      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(longResponse);
+      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(
+        longResponse,
+      );
 
       const webhookData = {
         MessageSid: 'SM123',

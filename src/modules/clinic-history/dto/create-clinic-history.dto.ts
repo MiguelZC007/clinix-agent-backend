@@ -11,7 +11,7 @@ import {
   ArrayMaxSize,
   IsNotEmpty,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Transform, Type, TransformFnParams } from 'class-transformer';
 import { CreateDiagnosticDto } from './create-diagnostic.dto';
 import { CreatePhysicalExamDto } from './create-physical-exam.dto';
 import { CreateVitalSignDto } from './create-vital-sign.dto';
@@ -32,9 +32,17 @@ export class CreateClinicHistoryDto {
   })
   @IsNotEmpty({ message: 'El motivo de consulta es requerido' })
   @IsString({ message: 'El motivo de consulta debe ser texto' })
-  @MinLength(10, { message: 'El motivo de consulta debe tener al menos 10 caracteres' })
-  @MaxLength(1000, { message: 'El motivo de consulta no puede exceder 1000 caracteres' })
-  @Transform(({ obj, value }) => value ?? obj.reason)
+  @MinLength(10, {
+    message: 'El motivo de consulta debe tener al menos 10 caracteres',
+  })
+  @MaxLength(1000, {
+    message: 'El motivo de consulta no puede exceder 1000 caracteres',
+  })
+  @Transform(({ obj, value }: TransformFnParams): string => {
+    if (typeof value === 'string') return value;
+    const legacyReason = (obj as { reason?: unknown }).reason;
+    return typeof legacyReason === 'string' ? legacyReason : '';
+  })
   consultationReason: string;
 
   @ApiProperty({
@@ -46,9 +54,15 @@ export class CreateClinicHistoryDto {
   @ArrayMinSize(1, { message: 'Debe incluir al menos un síntoma' })
   @ArrayMaxSize(50, { message: 'No puede incluir más de 50 síntomas' })
   @IsString({ each: true, message: 'Cada síntoma debe ser texto' })
-  @Transform(({ value }) =>
-    Array.isArray(value) ? value : value ? [value] : value,
-  )
+  @Transform(({ value }: TransformFnParams): unknown => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return [value];
+    }
+    return value;
+  })
   symptoms: string[];
 
   @ApiProperty({
@@ -57,8 +71,12 @@ export class CreateClinicHistoryDto {
   })
   @IsNotEmpty({ message: 'El tratamiento es requerido' })
   @IsString({ message: 'El tratamiento debe ser texto' })
-  @MinLength(10, { message: 'El tratamiento debe tener al menos 10 caracteres' })
-  @MaxLength(2000, { message: 'El tratamiento no puede exceder 2000 caracteres' })
+  @MinLength(10, {
+    message: 'El tratamiento debe tener al menos 10 caracteres',
+  })
+  @MaxLength(2000, {
+    message: 'El tratamiento no puede exceder 2000 caracteres',
+  })
   treatment: string;
 
   @ApiProperty({

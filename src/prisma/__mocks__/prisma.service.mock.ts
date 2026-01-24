@@ -77,7 +77,7 @@ export const createMockPrismaService = () => ({
     findUnique: jest.fn(),
     create: jest.fn(),
   },
-  $transaction: jest.fn((callback) => callback),
+  $transaction: jest.fn((operations: unknown) => operations),
 });
 
 export type MockPrismaService = ReturnType<typeof createMockPrismaService>;

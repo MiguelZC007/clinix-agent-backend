@@ -20,16 +20,29 @@ jest.mock('src/core/config/environments', () => ({
 }));
 
 import { OpenaiService } from './openai.service';
-import { ConversationService } from './conversation.service';
 import { NotFoundException } from '@nestjs/common';
 
 describe('OpenaiService', () => {
   let service: OpenaiService;
   let mockPrisma: {
     user: { create: jest.Mock; findFirst: jest.Mock };
-    patient: { findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
-    appointment: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
-    clinicHistory: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock };
+    patient: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      delete: jest.Mock;
+    };
+    appointment: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+    };
+    clinicHistory: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+    };
   };
   let mockConversationService: {
     findDoctorByPhone: jest.Mock;
@@ -101,7 +114,8 @@ describe('OpenaiService', () => {
         choices: [
           {
             message: {
-              content: '¡Hola! Soy tu asistente médico. ¿En qué puedo ayudarte?',
+              content:
+                '¡Hola! Soy tu asistente médico. ¿En qué puedo ayudarte?',
               tool_calls: null,
             },
           },
@@ -113,8 +127,12 @@ describe('OpenaiService', () => {
         'Hola',
       );
 
-      expect(result).toBe('¡Hola! Soy tu asistente médico. ¿En qué puedo ayudarte?');
-      expect(mockConversationService.findDoctorByPhone).toHaveBeenCalledWith('+584241234567');
+      expect(result).toBe(
+        '¡Hola! Soy tu asistente médico. ¿En qué puedo ayudarte?',
+      );
+      expect(mockConversationService.findDoctorByPhone).toHaveBeenCalledWith(
+        '+584241234567',
+      );
       expect(mockConversationService.addMessage).toHaveBeenCalledTimes(2);
     });
 
@@ -155,16 +173,36 @@ describe('OpenaiService', () => {
 
       await service.processMessageFromDoctor('+584241234567', 'Juan');
 
-      expect(mockChatCompletionsCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messages: expect.arrayContaining([
-            expect.objectContaining({ role: 'system' }),
-            expect.objectContaining({ role: 'user', content: 'Registra un paciente' }),
-            expect.objectContaining({ role: 'assistant', content: '¿Cuál es el nombre del paciente?' }),
-            expect.objectContaining({ role: 'user', content: 'Juan' }),
-          ]),
-        }),
-      );
+      const createCalls = mockChatCompletionsCreate.mock.calls as Array<
+        [unknown]
+      >;
+      const createArg = createCalls[0]?.[0] as
+        | { messages?: unknown }
+        | undefined;
+      expect(createArg).toBeDefined();
+      expect(Array.isArray(createArg?.messages)).toBe(true);
+      const messages = (
+        createArg?.messages as Array<{ role?: unknown; content?: unknown }>
+      ).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      expect(messages.some((m) => m.role === 'system')).toBe(true);
+      expect(
+        messages.some(
+          (m) => m.role === 'user' && m.content === 'Registra un paciente',
+        ),
+      ).toBe(true);
+      expect(
+        messages.some(
+          (m) =>
+            m.role === 'assistant' &&
+            m.content === '¿Cuál es el nombre del paciente?',
+        ),
+      ).toBe(true);
+      expect(
+        messages.some((m) => m.role === 'user' && m.content === 'Juan'),
+      ).toBe(true);
     });
   });
 
@@ -213,7 +251,8 @@ describe('OpenaiService', () => {
           choices: [
             {
               message: {
-                content: 'Encontré 2 pacientes registrados: Juan Pérez y María García.',
+                content:
+                  'Encontré 2 pacientes registrados: Juan Pérez y María García.',
               },
             },
           ],
@@ -280,23 +319,35 @@ describe('OpenaiService', () => {
         'Registra paciente Carlos López, email nuevo@test.com, teléfono +584247654321',
       );
 
-      expect(mockPrisma.user.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            email: 'nuevo@test.com',
-            name: 'Carlos',
-            lastName: 'López',
-            phone: '+584247654321',
-          }),
-        }),
-      );
+      const userCreateCalls = mockPrisma.user.create.mock.calls as Array<
+        [unknown]
+      >;
+      const createArg = userCreateCalls[0]?.[0] as
+        | {
+            data?: {
+              email?: unknown;
+              name?: unknown;
+              lastName?: unknown;
+              phone?: unknown;
+            };
+          }
+        | undefined;
+      expect(createArg?.data?.email).toBe('nuevo@test.com');
+      expect(createArg?.data?.name).toBe('Carlos');
+      expect(createArg?.data?.lastName).toBe('López');
+      expect(createArg?.data?.phone).toBe('+584247654321');
       expect(result).toContain('Carlos López');
     });
 
     it('debe ejecutar tool call get_patient', async () => {
       const mockPatient = {
         id: 'patient-uuid',
-        user: { name: 'Juan', lastName: 'Pérez', email: 'juan@test.com', phone: '+584241234567' },
+        user: {
+          name: 'Juan',
+          lastName: 'Pérez',
+          email: 'juan@test.com',
+          phone: '+584241234567',
+        },
         allergies: ['Penicilina'],
         medications: [],
       };
@@ -327,7 +378,8 @@ describe('OpenaiService', () => {
           choices: [
             {
               message: {
-                content: 'Paciente Juan Pérez encontrado. Tiene alergia a Penicilina.',
+                content:
+                  'Paciente Juan Pérez encontrado. Tiene alergia a Penicilina.',
               },
             },
           ],
@@ -338,10 +390,13 @@ describe('OpenaiService', () => {
         'Busca al paciente patient-uuid',
       );
 
-      expect(mockPrisma.patient.findUnique).toHaveBeenCalledWith({
-        where: { id: 'patient-uuid' },
-        include: expect.any(Object),
-      });
+      const patientFindUniqueCalls = mockPrisma.patient.findUnique.mock
+        .calls as Array<[unknown]>;
+      const findUniqueArg = patientFindUniqueCalls[0]?.[0] as
+        | { where?: { id?: unknown }; include?: unknown }
+        | undefined;
+      expect(findUniqueArg?.where?.id).toBe('patient-uuid');
+      expect(typeof findUniqueArg?.include).toBe('object');
       expect(result).toContain('Juan Pérez');
     });
 
@@ -363,7 +418,9 @@ describe('OpenaiService', () => {
                     type: 'function',
                     function: {
                       name: 'cancel_appointment',
-                      arguments: JSON.stringify({ appointmentId: 'appointment-uuid' }),
+                      arguments: JSON.stringify({
+                        appointmentId: 'appointment-uuid',
+                      }),
                     },
                   },
                 ],

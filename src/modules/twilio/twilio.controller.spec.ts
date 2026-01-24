@@ -6,10 +6,21 @@ import type { Request, Response } from 'express';
 
 describe('TwilioController', () => {
   let controller: TwilioController;
-  let service: jest.Mocked<TwilioService>;
+  type MockTwilioService = {
+    sendDirectMessage: jest.MockedFunction<
+      (this: void, to: string, body: string) => Promise<unknown>
+    >;
+    processIncomingMessage: jest.MockedFunction<
+      (this: void, webhookData: unknown) => Promise<unknown>
+    >;
+    getMessageStatus: jest.MockedFunction<
+      (this: void, messageSid: string) => Promise<unknown>
+    >;
+  };
+  let service: MockTwilioService;
 
   beforeEach(async () => {
-    const mockService = {
+    const mockService: MockTwilioService = {
       sendDirectMessage: jest.fn(),
       processIncomingMessage: jest.fn(),
       getMessageStatus: jest.fn(),
@@ -60,10 +71,15 @@ describe('TwilioController', () => {
       };
 
       const mockRequest = { body: webhookData } as Request;
-      const mockResponse = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      } as unknown as Response;
+      type MockResponse = {
+        status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
+        json: jest.MockedFunction<(this: void, body: unknown) => void>;
+      };
+      const mockResponse: MockResponse = {
+        status: jest.fn<MockResponse, [number]>(),
+        json: jest.fn<void, [unknown]>(),
+      };
+      mockResponse.status.mockImplementation(() => mockResponse);
 
       const processResult = {
         success: true,
@@ -76,31 +92,36 @@ describe('TwilioController', () => {
       await controller.receiveWhatsAppMessage(
         webhookData,
         mockRequest,
-        mockResponse,
+        mockResponse as unknown as Response,
       );
 
       expect(service.processIncomingMessage).toHaveBeenCalledWith(webhookData);
-      expect(mockResponse.status).toHaveBeenCalledWith(200);
-      expect(mockResponse.json).toHaveBeenCalledWith(processResult);
+      expect(mockResponse.status.mock.calls[0]?.[0]).toBe(200);
+      expect(mockResponse.json.mock.calls[0]?.[0]).toEqual(processResult);
     });
 
     it('debe manejar errores del webhook', async () => {
       const webhookData = {};
       const mockRequest = { body: webhookData } as Request;
-      const mockResponse = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      } as unknown as Response;
+      type MockResponse = {
+        status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
+        json: jest.MockedFunction<(this: void, body: unknown) => void>;
+      };
+      const mockResponse: MockResponse = {
+        status: jest.fn<MockResponse, [number]>(),
+        json: jest.fn<void, [unknown]>(),
+      };
+      mockResponse.status.mockImplementation(() => mockResponse);
 
       service.processIncomingMessage.mockRejectedValue(new Error('Test error'));
 
       await controller.receiveWhatsAppMessage(
         webhookData,
         mockRequest,
-        mockResponse,
+        mockResponse as unknown as Response,
       );
 
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.status.mock.calls[0]?.[0]).toBe(500);
     });
   });
 
