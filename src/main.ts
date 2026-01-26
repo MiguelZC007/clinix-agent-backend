@@ -2,11 +2,23 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { ResponseInterceptor } from './core/interceptors/response.interceptor';
+import { HttpExceptionFilter } from './core/filters/http-exception.filter';
+import { PrismaExceptionFilter } from './core/filters/prisma-exception.filter';
+import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Configuración de validación global
+  app.setGlobalPrefix('v1');
+
+  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalFilters(
+    new AllExceptionsFilter(),
+    new PrismaExceptionFilter(),
+    new HttpExceptionFilter(),
+  );
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -15,20 +27,21 @@ async function bootstrap() {
     }),
   );
 
-  // Configuración de CORS
   app.enableCors({
     origin: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
 
-  // Configuración de Swagger
   const config = new DocumentBuilder()
     .setTitle('Backend Tesis API')
     .setDescription(
       'API para el proyecto de grado - Sistema médico con integración de WhatsApp y OpenAI',
     )
     .setVersion('1.0')
+    .addTag('Patients', 'Endpoints para gestión de pacientes')
+    .addTag('Appointments', 'Endpoints para gestión de citas médicas')
+    .addTag('Clinic Histories', 'Endpoints para historias clínicas')
     .addTag('OpenAI', 'Endpoints para integración con OpenAI')
     .addTag('Twilio WhatsApp', 'Endpoints para mensajería WhatsApp con Twilio')
     .addBearerAuth(
@@ -62,10 +75,10 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
-  console.log(`🚀 Aplicación ejecutándose en: http://localhost:${port}`);
+  console.log(`Aplicación ejecutándose en: http://localhost:${port}`);
   console.log(
-    `📚 Documentación Swagger disponible en: http://localhost:${port}/api/docs`,
+    `Documentación Swagger disponible en: http://localhost:${port}/api/docs`,
   );
 }
 
-bootstrap();
+void bootstrap();

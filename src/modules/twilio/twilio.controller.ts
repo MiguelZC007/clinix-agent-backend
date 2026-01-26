@@ -3,9 +3,7 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
-  Delete,
   HttpCode,
   HttpStatus,
   Logger,
@@ -15,10 +13,9 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { TwilioService } from './twilio.service';
-import { CreateTwilioDto } from './dto/create-twilio.dto';
-import { UpdateTwilioDto } from './dto/update-twilio.dto';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('Twilio WhatsApp')
 @Controller('twilio')
@@ -51,9 +48,13 @@ export class TwilioController {
   @ApiResponse({ status: 400, description: 'Error en los datos enviados' })
   @ApiResponse({ status: 500, description: 'Error interno del servidor' })
   async sendWhatsAppMessage(@Body() sendMessageDto: SendWhatsAppMessageDto) {
-    return await this.twilioService.sendWhatsAppMessage(sendMessageDto);
+    return await this.twilioService.sendDirectMessage(
+      sendMessageDto.to,
+      sendMessageDto.body,
+    );
   }
 
+  @Public()
   @Post('webhook/whatsapp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -112,7 +113,7 @@ export class TwilioController {
     },
   })
   async receiveWhatsAppMessage(
-    @Body() webhookData: any,
+    @Body() webhookData: WebhookMessageDto,
     @Req() req: Request,
     @Res() res: Response,
   ) {
@@ -131,14 +132,13 @@ export class TwilioController {
       // Twilio espera una respuesta HTTP 200 para confirmar que el webhook fue procesado
       res.status(200).json(result);
     } catch (error) {
-      this.logger.error(
-        `Error procesando webhook: ${error.message}`,
-        error.stack,
-      );
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Error procesando webhook: ${message}`, stack);
       res.status(500).json({
         success: false,
         message: 'Error procesando webhook',
-        error: error.message,
+        error: message,
       });
     }
   }

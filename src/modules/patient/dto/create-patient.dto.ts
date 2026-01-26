@@ -1,84 +1,98 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsString,
-  IsNumber,
-  IsArray,
+  IsEmail,
   IsOptional,
   IsEnum,
+  IsDateString,
+  MinLength,
+  MaxLength,
+  IsNotEmpty,
+  Matches,
 } from 'class-validator';
 import { Gender } from 'src/core/enum/gender.enum';
 
 export class CreatePatientDto {
   @ApiProperty({
-    description: 'The name of the patient',
-    example: 'John',
+    description: 'Correo electrónico del paciente',
+    example: 'paciente@ejemplo.com',
   })
-  @IsString()
+  @IsNotEmpty({ message: 'El email es requerido' })
+  @IsEmail({}, { message: 'El email debe tener un formato válido' })
+  @MaxLength(255, { message: 'El email no puede exceder 255 caracteres' })
+  email: string;
+
+  @ApiProperty({
+    description: 'Nombre del paciente',
+    example: 'Juan',
+  })
+  @IsNotEmpty({ message: 'El nombre es requerido' })
+  @IsString({ message: 'El nombre debe ser texto' })
+  @MinLength(2, { message: 'El nombre debe tener al menos 2 caracteres' })
+  @MaxLength(100, { message: 'El nombre no puede exceder 100 caracteres' })
   name: string;
 
   @ApiProperty({
-    description: 'The last name of the patient',
-    example: 'Doe',
+    description: 'Apellido del paciente',
+    example: 'Pérez',
   })
-  @IsString()
+  @IsNotEmpty({ message: 'El apellido es requerido' })
+  @IsString({ message: 'El apellido debe ser texto' })
+  @MinLength(2, { message: 'El apellido debe tener al menos 2 caracteres' })
+  @MaxLength(100, { message: 'El apellido no puede exceder 100 caracteres' })
   lastName: string;
 
   @ApiProperty({
-    description: 'The age of the patient',
-    example: 30,
+    description: 'Teléfono del paciente (formato internacional)',
+    example: '+584241234567',
   })
-  @IsNumber()
-  age: number;
+  @IsNotEmpty({ message: 'El teléfono es requerido' })
+  @IsString({ message: 'El teléfono debe ser texto' })
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'El teléfono debe tener un formato válido (ej: +584241234567)',
+  })
+  phone: string;
 
   @ApiProperty({
-    description: 'The gender of the patient',
+    description: 'Dirección del paciente',
+    example: 'Calle 123, Ciudad',
+  })
+  @IsNotEmpty({ message: 'La dirección es requerida' })
+  @IsString({ message: 'La dirección debe ser texto' })
+  @MinLength(5, { message: 'La dirección debe tener al menos 5 caracteres' })
+  @MaxLength(255, { message: 'La dirección no puede exceder 255 caracteres' })
+  address: string;
+
+  @ApiProperty({
+    description: 'Contraseña del paciente',
+    example: 'password123',
+    required: false,
+  })
+  @IsOptional()
+  @IsString({ message: 'La contraseña debe ser texto' })
+  @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
+  @MaxLength(100, { message: 'La contraseña no puede exceder 100 caracteres' })
+  password?: string;
+
+  @ApiProperty({
+    description: 'Género del paciente',
     example: 'male',
     enum: Gender,
-  })
-  @IsEnum(Gender)
-  gender: Gender;
-
-  @ApiProperty({
-    description: 'The allergies of the patient',
-    example: ['peanuts', 'penicillin'],
-    type: [String],
     required: false,
   })
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  allergies?: string[];
+  @IsEnum(Gender, { message: 'El género debe ser male o female' })
+  gender?: Gender;
 
   @ApiProperty({
-    description: 'The medications of the patient',
-    example: ['aspirin', 'metformin'],
-    type: [String],
+    description: 'Fecha de nacimiento del paciente',
+    example: '1990-05-15',
     required: false,
   })
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  medications?: string[];
-
-  @ApiProperty({
-    description: 'The medical history of the patient',
-    example: ['diabetes', 'hypertension'],
-    type: [String],
-    required: false,
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  medicalHistory?: string[];
-
-  @ApiProperty({
-    description: 'The family history of the patient',
-    example: ['heart disease', 'cancer'],
-    type: [String],
-    required: false,
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  familyHistory?: string[];
+  @IsDateString(
+    {},
+    { message: 'La fecha de nacimiento debe tener formato ISO 8601' },
+  )
+  birthDate?: string;
 }

@@ -1,5 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsNotEmpty } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class SendWhatsAppMessageDto {
   @ApiProperty({
