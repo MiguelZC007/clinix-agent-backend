@@ -4,9 +4,11 @@ import { OpenaiController } from './openai.controller';
 import { ConversationService } from './conversation.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ConversationsController } from './conversations.controller';
+import { MessagesController } from './messages.controller';
 
 @Module({
-  controllers: [OpenaiController],
+  controllers: [OpenaiController, ConversationsController, MessagesController],
   providers: [OpenaiService, ConversationService, PrismaService],
   imports: [PrismaModule],
   exports: [OpenaiService, ConversationService],

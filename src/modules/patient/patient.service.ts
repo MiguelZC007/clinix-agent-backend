@@ -61,16 +61,13 @@ export class PatientService {
   }
 
   async findAll(): Promise<PatientResponseDto[]> {
-    const users = await this.prisma.user.findMany({
-      where: {
-        patient: { isNot: null },
-      },
+    const patients = await this.prisma.patient.findMany({
       include: {
-        patient: true,
+        user: true,
       },
     });
 
-    return users.map((user) => this.mapToPatientResponse(user));
+    return patients.map((patient) => this.mapToPatientResponseFromPatient(patient));
   }
 
   async findOne(id: string): Promise<PatientResponseDto> {
@@ -264,9 +261,9 @@ export class PatientService {
       name: patient.user.name,
       lastName: patient.user.lastName,
       phone: patient.user.phone,
+      address: patient.address ?? undefined,
       gender: patient.gender as Gender | undefined,
       birthDate: patient.birthDate ?? undefined,
-      address: patient.address ?? undefined,
       createdAt: patient.createdAt,
       updatedAt: patient.updatedAt,
     };

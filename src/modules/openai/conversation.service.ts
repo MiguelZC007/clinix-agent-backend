@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Conversation, Message } from '@prisma/client';
 import environment from 'src/core/config/environments';
 import OpenAI from 'openai';
+import { ErrorCode } from 'src/core/responses/problem-details.dto';
 
 interface ConversationMessage {
   role: 'user' | 'assistant' | 'system';
@@ -288,5 +289,92 @@ export class ConversationService {
         },
       },
     });
+  }
+
+  async listConversationsByDoctorId(doctorId: string): Promise<Conversation[]> {
+    return this.prisma.conversation.findMany({
+      where: { doctorId },
+      orderBy: { lastActivityAt: 'desc' },
+    });
+  }
+
+  async getConversationByIdForDoctor(
+    conversationId: string,
+    doctorId: string,
+  ): Promise<Conversation | null> {
+    return this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        doctorId,
+      },
+    });
+  }
+
+  async listMessagesByConversationId(conversationId: string): Promise<Message[]> {
+    return this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createMessageForConversation(
+    conversationId: string,
+    doctorId: string,
+    role: 'user' | 'assistant',
+    content: string,
+  ): Promise<Message> {
+    const conversation = await this.getConversationByIdForDoctor(
+      conversationId,
+      doctorId,
+    );
+
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+
+    const tokenCount = this.estimateTokenCount(content);
+
+    const [message] = await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: {
+          conversationId,
+          role,
+          content,
+          tokenCount,
+        },
+      }),
+      this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastActivityAt: new Date() },
+      }),
+    ]);
+
+    return message;
+  }
+
+  async markConversationMessagesAsRead(
+    conversationId: string,
+    doctorId: string,
+  ): Promise<{ updatedCount: number }> {
+    const conversation = await this.getConversationByIdForDoctor(
+      conversationId,
+      doctorId,
+    );
+
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+
+    const result = await this.prisma.message.updateMany({
+      where: {
+        conversationId,
+        readAt: null,
+      },
+      data: {
+        readAt: new Date(),
+      },
+    });
+
+    return { updatedCount: result.count };
   }
 }

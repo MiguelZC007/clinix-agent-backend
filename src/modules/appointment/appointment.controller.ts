@@ -7,7 +7,13 @@ import {
   Param,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -15,6 +21,7 @@ import { AppointmentResponseDto } from './dto/appointment-response.dto';
 
 @ApiTags('Appointments')
 @Controller('appointments')
+@ApiBearerAuth('JWT-auth')
 export class AppointmentController {
   constructor(private readonly appointmentService: AppointmentService) {}
 

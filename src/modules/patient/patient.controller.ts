@@ -11,7 +11,13 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { PatientService } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -21,6 +27,7 @@ import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
 
 @ApiTags('Patients')
 @Controller('patients')
+@ApiBearerAuth('JWT-auth')
 export class PatientController {
   constructor(private readonly patientService: PatientService) {}
 

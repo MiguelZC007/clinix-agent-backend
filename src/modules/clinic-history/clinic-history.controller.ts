@@ -6,12 +6,19 @@ import {
   Param,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { ClinicHistoryService } from './clinic-history.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
 
 @ApiTags('Clinic Histories')
+@ApiBearerAuth('JWT-auth')
 @Controller('clinic-histories')
 export class ClinicHistoryController {
   constructor(private readonly clinicHistoryService: ClinicHistoryService) {}
