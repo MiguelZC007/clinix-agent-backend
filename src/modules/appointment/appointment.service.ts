@@ -13,6 +13,7 @@ import {
   AppointmentDoctorDto,
 } from './dto/appointment-response.dto';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
+import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 
 @Injectable()
 export class AppointmentService {
@@ -99,18 +100,57 @@ export class AppointmentService {
     return this.mapToAppointmentResponse(appointment);
   }
 
-  async findAll(): Promise<AppointmentResponseDto[]> {
-    const appointments = await this.prisma.appointment.findMany({
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-      },
-      orderBy: { startAppointment: 'desc' },
-    });
+  async findAll(
+    page: number,
+    limit: number,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<PaginationResponseDto<AppointmentResponseDto>> {
+    const skip = (page - 1) * limit;
 
-    return appointments.map((appointment) =>
-      this.mapToAppointmentResponse(appointment),
-    );
+    const where: {
+      startAppointment?: { gte?: Date; lte?: Date };
+    } = {};
+
+    if (startDate || endDate) {
+      where.startAppointment = {};
+      if (startDate) {
+        where.startAppointment.gte = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        where.startAppointment.lte = endDateTime;
+      }
+    }
+
+    const [appointments, total] = await Promise.all([
+      this.prisma.appointment.findMany({
+        where,
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+        },
+        orderBy: { startAppointment: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.appointment.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: appointments.map((appointment) =>
+        this.mapToAppointmentResponse(appointment),
+      ),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
   }
 
   async findOne(id: string): Promise<AppointmentResponseDto> {

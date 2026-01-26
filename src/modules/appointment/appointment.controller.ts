@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,8 @@ import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
+import { FindAppointmentsQueryDto } from './dto/find-appointments-query.dto';
 
 @ApiTags('Appointments')
 @Controller('appointments')
@@ -51,11 +54,18 @@ export class AppointmentController {
   @ApiOperation({ summary: 'Obtener lista de todas las citas' })
   @ApiResponse({
     status: 200,
-    description: 'Lista de citas',
-    type: [AppointmentResponseDto],
+    description: 'Lista de citas paginada',
+    type: PaginationResponseDto<AppointmentResponseDto>,
   })
-  findAll(): Promise<AppointmentResponseDto[]> {
-    return this.appointmentService.findAll();
+  findAll(
+    @Query() query: FindAppointmentsQueryDto,
+  ): Promise<PaginationResponseDto<AppointmentResponseDto>> {
+    return this.appointmentService.findAll(
+      query.page ?? 1,
+      query.limit ?? 10,
+      query.startDate,
+      query.endDate,
+    );
   }
 
   @Get(':id')
