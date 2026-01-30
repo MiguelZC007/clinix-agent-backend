@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
 import { OpenaiService } from '../openai/openai.service';
 import twilio from 'twilio';
+import environment from 'src/core/config/environments';
 
 const MAX_MESSAGE_LENGTH = 990;
 const MESSAGE_DELAY_MS = 500;
@@ -12,8 +13,8 @@ export class TwilioService {
   private twilioClient: twilio.Twilio;
 
   constructor(private readonly openaiService: OpenaiService) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const accountSid = environment.TWILIO_ACCOUNT_SID;
+    const authToken = environment.TWILIO_AUTH_TOKEN;
 
     if (!accountSid || !authToken) {
       this.logger.error(

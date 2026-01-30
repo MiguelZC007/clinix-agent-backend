@@ -114,25 +114,6 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     console.log('   ✅ Limpieza completada\n');
   }
 
-  type WebhookResponseBody = {
-    success?: unknown;
-    data?: {
-      from?: unknown;
-      responsePartsCount?: unknown;
-      [key: string]: unknown;
-    };
-    [key: string]: unknown;
-  };
-
-  function getBody(response: request.Response): WebhookResponseBody {
-    return response.body as unknown as WebhookResponseBody;
-  }
-
-  function getResponsePartsCount(body: WebhookResponseBody): number {
-    const count = body.data?.responsePartsCount;
-    return typeof count === 'number' ? count : 0;
-  }
-
   function createWebhookPayload(message: string): Record<string, string> {
     messageCounter++;
     return {
@@ -163,11 +144,7 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
       .send(payload)
       .expect(200);
 
-    const body = getBody(response);
-    const responsePartsCount = getResponsePartsCount(body);
-    console.log(
-      `🤖 ASISTENTE: ${responsePartsCount > 1 ? '[Múltiples mensajes]' : ''}`,
-    );
+    console.log('🤖 ASISTENTE: respuesta enviada vía SDK (Messages API)');
 
     return response;
   }
@@ -178,12 +155,7 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
   describe('Flujo completo via Webhook HTTP', () => {
     it('Paso 1: Saludo inicial via webhook', async () => {
-      const response = await sendWebhookMessage('Hola, buenos días');
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
-      const from = typeof body.data?.from === 'string' ? body.data.from : '';
-      expect(from).toContain(testDoctorPhone);
+      await sendWebhookMessage('Hola, buenos días');
 
       const conversation = await prisma.conversation.findFirst({
         where: { doctorId: testDoctorId, isActive: true },
@@ -199,12 +171,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     it('Paso 2: Solicitar registro de paciente', async () => {
       await delay(1000);
 
-      const response = await sendWebhookMessage(
+      await sendWebhookMessage(
         'Necesito registrar un paciente nuevo que llegó a consulta',
       );
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
 
       console.log('✅ Asistente solicitó información del paciente');
     }, 30000);
@@ -212,12 +181,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     it('Paso 3: Proporcionar datos completos del paciente', async () => {
       await delay(1000);
 
-      const response = await sendWebhookMessage(
+      await sendWebhookMessage(
         'El paciente es Pedro Ramírez, email pedro.ramirez@email.com, teléfono +584147654321, masculino, nacido el 10 de junio de 1980. No tiene alergias, no toma medicamentos, sin antecedentes médicos ni familiares relevantes. Confirmo el registro.',
       );
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
 
       await delay(3000);
 
@@ -254,12 +220,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       await delay(1000);
 
-      const response = await sendWebhookMessage(
+      await sendWebhookMessage(
         'Sí, confirmo. Procede con el registro del paciente Pedro Ramírez.',
       );
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
 
       await delay(3000);
 
@@ -286,10 +249,7 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     it('Paso 5: Consultar pacientes registrados', async () => {
       await delay(1000);
 
-      const response = await sendWebhookMessage('Dame la lista de pacientes');
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
+      await sendWebhookMessage('Dame la lista de pacientes');
 
       const patients = await prisma.patient.findMany();
       console.log(
@@ -305,12 +265,9 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
 
       await delay(1000);
 
-      const response = await sendWebhookMessage(
+      await sendWebhookMessage(
         `Actualiza los antecedentes del paciente ${testPatientId}: alergia a la aspirina, toma enalapril 10mg diario, tiene historial de hipertensión, y antecedentes familiares de diabetes. Confirmo la actualización.`,
       );
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
 
       await delay(2000);
 
@@ -330,10 +287,7 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     it('Paso 7: Intentar pregunta fuera de alcance', async () => {
       await delay(1000);
 
-      const response = await sendWebhookMessage('¿Cómo está el clima hoy?');
-
-      const body = getBody(response);
-      expect(body.success).toBe(true);
+      await sendWebhookMessage('¿Cómo está el clima hoy?');
 
       console.log('✅ Asistente rechazó pregunta fuera de alcance');
     }, 30000);
@@ -385,21 +339,18 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
     it('Debe manejar respuestas largas correctamente', async () => {
       await delay(1000);
 
-      const response = await sendWebhookMessage(
+      await sendWebhookMessage(
         'Dame información detallada sobre cómo funciona el sistema de registro de pacientes, las citas médicas y las historias clínicas',
       );
 
-      const body = getBody(response);
-      expect(body.success).toBe(true);
+      const conversation = await prisma.conversation.findFirst({
+        where: { doctorId: testDoctorId, isActive: true },
+        include: { messages: true },
+      });
+      expect(conversation).not.toBeNull();
+      expect(conversation!.messages.length).toBeGreaterThan(0);
 
-      const responsePartsCount = getResponsePartsCount(body);
-      if (responsePartsCount > 1) {
-        console.log(
-          `✅ Respuesta larga dividida en ${responsePartsCount} partes`,
-        );
-      } else {
-        console.log('✅ Respuesta enviada en un solo mensaje');
-      }
+      console.log('✅ Respuesta larga procesada (mensajes enviados vía SDK)');
     }, 30000);
   });
 });

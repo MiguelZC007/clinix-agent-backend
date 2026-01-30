@@ -97,20 +97,8 @@ export class TwilioController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Mensaje procesado correctamente',
-    schema: {
-      example: {
-        success: true,
-        message: 'Mensaje procesado correctamente',
-        data: {
-          messageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-          from: 'whatsapp:+1234567890',
-          to: 'whatsapp:+14155238886',
-          body: 'Hola, este es un mensaje recibido',
-          hasMedia: false,
-        },
-      },
-    },
+    description:
+      'Webhook aceptado. La respuesta al usuario se envía vía SDK (Messages API), no en el body HTTP.',
   })
   async receiveWhatsAppMessage(
     @Body() webhookData: WebhookMessageDto,
@@ -125,12 +113,9 @@ export class TwilioController {
         JSON.stringify(webhookData, null, 2),
       );
 
-      // Procesar el mensaje entrante
-      const result =
-        await this.twilioService.processIncomingMessage(webhookData);
+      await this.twilioService.processIncomingMessage(webhookData);
 
-      // Twilio espera una respuesta HTTP 200 para confirmar que el webhook fue procesado
-      res.status(200).json(result);
+      res.status(200).end();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       const stack = error instanceof Error ? error.stack : undefined;

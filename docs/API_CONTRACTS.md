@@ -861,13 +861,9 @@ dto:
     Timestamp?: string;
   };
 }
-response:
-{
-  success: boolean;
-  message: string;
-  data: { messageSid: string; from: string; responsePartsCount: number; };
-}
+response: {}
 code: 200
+note: La respuesta al mensaje del usuario se realiza con la SDK de Twilio (Messages API), no con el body de la respuesta HTTP. El endpoint devuelve 200 con cuerpo vacío para confirmar a Twilio que el webhook fue procesado.
 
 url: GET v1/twilio/message/:messageSid/status
 dto:
