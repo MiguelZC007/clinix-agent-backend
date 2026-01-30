@@ -26,22 +26,38 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 En la consola de Twilio:
 1. Ve a **Messaging > Try it out > Send a WhatsApp message**
 2. En **Sandbox settings**, configura el webhook URL:
-   ```
-   https://tu-dominio.com/twilio/webhook/whatsapp
-   ```
+```
+https://tu-dominio.com/v1/twilio/webhook/whatsapp
+```
 
 ## Endpoints Disponibles
 
-### Enviar Mensaje de WhatsApp
+### Enviar mensaje (ventana 24h)
+
+Solo para texto libre dentro de la ventana de 24h (respuesta al usuario o mensaje iniciado por el sistema dentro de ventana).
 
 ```http
-POST /twilio/whatsapp/send
+POST /v1/twilio/whatsapp/send
 Content-Type: application/json
 
 {
   "to": "+1234567890",
-  "body": "Hola, este es un mensaje de prueba",
-  "mediaUrl": "https://example.com/image.jpg" // opcional
+  "body": "Hola, este es un mensaje de prueba"
+}
+```
+
+### Enviar plantilla (proactivo, fuera de 24h)
+
+Obligatorio para mensajes proactivos fuera de la ventana de 24h. Solo plantillas aprobadas por WhatsApp (Content SID).
+
+```http
+POST /v1/twilio/whatsapp/send-template
+Content-Type: application/json
+
+{
+  "to": "+1234567890",
+  "contentSid": "HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "contentVariables": { "1": "Juan", "2": "recordatorio" }
 }
 ```
 
@@ -108,23 +124,32 @@ ngrok http 3000
 ```
 src/modules/twilio/
 ├── dto/
-│   ├── send-whatsapp-message.dto.ts    # DTO para enviar mensajes
+│   ├── send-whatsapp-message.dto.ts    # DTO para enviar mensajes (ventana 24h)
+│   ├── send-whatsapp-template.dto.ts  # DTO para plantillas proactivas
 │   ├── webhook-message.dto.ts          # DTO para webhook entrante
 │   ├── create-twilio.dto.ts            # DTO original (compatibilidad)
 │   └── update-twilio.dto.ts            # DTO original (compatibilidad)
 ├── entities/
 │   └── twilio.entity.ts                # Entidad original (compatibilidad)
-├── twilio.controller.ts                # Controlador con endpoints
-├── twilio.service.ts                   # Servicio con lógica de negocio
+├── guards/
+│   └── twilio-webhook.guard.ts         # Validación X-Twilio-Signature
+├── reply-message.handler.ts            # Caso de uso: responder mensaje entrante
+├── twilio.controller.ts                 # Controlador con endpoints
+├── twilio.service.ts                   # Servicio de envío (reply/template/direct)
 ├── twilio.module.ts                    # Módulo de NestJS
 └── README.md                           # Esta documentación
 ```
+
+## Responsabilidades
+
+- **Respuesta entrante (webhook):** From del mensaje saliente = To del webhook; solo texto libre en ventana 24h.
+- **Proactivo (send-template):** Solo plantillas aprobadas; usar cuando el usuario no ha escrito en 24h.
 
 ## Próximos Pasos
 
 - [ ] Implementar persistencia de mensajes en base de datos
 - [ ] Agregar respuestas automáticas
-- [ ] Implementar plantillas de mensajes
-- [ ] Agregar validación de firma de webhook de Twilio
-- [ ] Implementar rate limiting
+- [x] Implementar plantillas de mensajes (POST /whatsapp/send-template)
+- [x] Agregar validación de firma de webhook de Twilio (TwilioWebhookGuard)
+- [x] Implementar rate limiting (webhook: 30/min por From; send/send-template: 20/min por IP)
 - [ ] Agregar métricas y monitoreo

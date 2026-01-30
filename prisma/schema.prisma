@@ -192,3 +192,15 @@ model RevokedToken {
   revokedAt DateTime @default(now())
   expiresAt DateTime
 }
+
+model ProcessedWebhookMessage {
+  messageSid  String   @id
+  processedAt DateTime @default(now())
+}
+
+model WhatsAppContactWindow {
+  channelNumber  String
+  userPhone      String
+  lastInboundAt  DateTime @default(now())
+  @@id([channelNumber, userPhone])
+}

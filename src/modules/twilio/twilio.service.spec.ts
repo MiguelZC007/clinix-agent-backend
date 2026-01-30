@@ -9,23 +9,59 @@ jest.mock('twilio', () => {
   }));
 });
 
+jest.mock('src/core/config/environments', () => ({
+  __esModule: true,
+  default: {
+    TWILIO_ACCOUNT_SID: 'test-sid',
+    TWILIO_AUTH_TOKEN: 'test-token',
+    TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886',
+  },
+}));
+
+import { Prisma } from '@prisma/client';
 import { TwilioService } from './twilio.service';
-import { OpenaiService } from '../openai/openai.service';
+import { ReplyMessageHandler } from './reply-message.handler';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 describe('TwilioService', () => {
   let service: TwilioService;
-  let mockOpenaiService: { processMessageFromDoctor: jest.Mock };
+  let mockPrisma: {
+    processedWebhookMessage: { create: jest.Mock };
+    whatsAppContactWindow: { upsert: jest.Mock; findUnique: jest.Mock };
+  };
+  let mockReplyMessageHandler: { handle: jest.Mock };
 
   beforeEach(() => {
     process.env.TWILIO_ACCOUNT_SID = 'test-sid';
     process.env.TWILIO_AUTH_TOKEN = 'test-token';
     process.env.TWILIO_WHATSAPP_FROM = 'whatsapp:+14155238886';
 
-    mockOpenaiService = {
-      processMessageFromDoctor: jest.fn(),
+    mockPrisma = {
+      processedWebhookMessage: {
+        create: jest.fn().mockResolvedValue(undefined),
+      },
+      whatsAppContactWindow: {
+        upsert: jest.fn().mockResolvedValue(undefined),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
     };
 
-    service = new TwilioService(mockOpenaiService as unknown as OpenaiService);
+    mockReplyMessageHandler = {
+      handle: jest.fn().mockResolvedValue({
+        success: true,
+        message: 'Mensaje procesado y respondido correctamente',
+        data: {
+          messageSid: 'SM123',
+          from: 'whatsapp:+584241234567',
+          responsePartsCount: 1,
+        },
+      }),
+    };
+
+    service = new TwilioService(
+      mockPrisma as unknown as PrismaService,
+      mockReplyMessageHandler as unknown as ReplyMessageHandler,
+    );
   });
 
   afterEach(() => {
@@ -125,8 +161,26 @@ Tercera parte final.`;
 
   describe('processIncomingMessage', () => {
     it('debe procesar mensaje y enviar respuesta', async () => {
-      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(
-        'Respuesta del asistente',
+      const webhookData = {
+        MessageSid: 'SM123',
+        From: 'whatsapp:+584241234567',
+        To: 'whatsapp:+14155238886',
+        Body: 'Hola',
+      };
+
+      const result = await service.processIncomingMessage(webhookData as never);
+
+      expect(result.success).toBe(true);
+      expect(mockReplyMessageHandler.handle).toHaveBeenCalledWith(webhookData);
+    });
+
+    it('debe retornar alreadyProcessed cuando MessageSid ya fue procesado', async () => {
+      const prismaError = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed',
+        { code: 'P2002', clientVersion: '' },
+      );
+      mockPrisma.processedWebhookMessage.create.mockRejectedValueOnce(
+        prismaError,
       );
 
       const webhookData = {
@@ -139,56 +193,23 @@ Tercera parte final.`;
       const result = await service.processIncomingMessage(webhookData as never);
 
       expect(result.success).toBe(true);
-      expect(mockOpenaiService.processMessageFromDoctor).toHaveBeenCalledWith(
-        'whatsapp:+584241234567',
-        'Hola',
-      );
+      expect(result.alreadyProcessed).toBe(true);
+      expect(mockReplyMessageHandler.handle).not.toHaveBeenCalled();
     });
 
-    it('debe manejar error cuando doctor no está registrado', async () => {
-      const notFoundError = new Error('No encontrado');
-      (notFoundError as { status?: number }).status = 404;
-      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(
-        notFoundError,
-      );
+    it('debe delegar en ReplyMessageHandler y retornar su resultado', async () => {
+      mockReplyMessageHandler.handle.mockResolvedValueOnce({
+        success: true,
+        message: 'OK',
+        data: {
+          messageSid: 'SM123',
+          from: 'whatsapp:+584241234567',
+          responsePartsCount: 3,
+        },
+      });
 
       const webhookData = {
-        MessageSid: 'SM123',
-        From: 'whatsapp:+584241234567',
-        To: 'whatsapp:+14155238886',
-        Body: 'Hola',
-      };
-
-      const result = await service.processIncomingMessage(webhookData as never);
-
-      expect(result.success).toBe(true);
-    });
-
-    it('debe manejar errores genéricos de OpenAI', async () => {
-      mockOpenaiService.processMessageFromDoctor.mockRejectedValue(
-        new Error('Error de API'),
-      );
-
-      const webhookData = {
-        MessageSid: 'SM123',
-        From: 'whatsapp:+584241234567',
-        To: 'whatsapp:+14155238886',
-        Body: 'Hola',
-      };
-
-      const result = await service.processIncomingMessage(webhookData as never);
-
-      expect(result.success).toBe(true);
-    });
-
-    it('debe dividir respuestas largas en múltiples mensajes', async () => {
-      const longResponse = 'Respuesta muy larga. '.repeat(100);
-      mockOpenaiService.processMessageFromDoctor.mockResolvedValue(
-        longResponse,
-      );
-
-      const webhookData = {
-        MessageSid: 'SM123',
+        MessageSid: 'SM456',
         From: 'whatsapp:+584241234567',
         To: 'whatsapp:+14155238886',
         Body: 'Dame mucha información',
@@ -197,7 +218,7 @@ Tercera parte final.`;
       const result = await service.processIncomingMessage(webhookData as never);
 
       expect(result.success).toBe(true);
-      expect(result.data.responsePartsCount).toBeGreaterThan(1);
+      expect(result.data.responsePartsCount).toBe(3);
     });
   });
 });

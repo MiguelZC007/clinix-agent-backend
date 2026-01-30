@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TwilioController } from './twilio.controller';
 import { TwilioService } from './twilio.service';
+import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
 import type { Request, Response } from 'express';
 
@@ -29,7 +31,12 @@ describe('TwilioController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TwilioController],
       providers: [{ provide: TwilioService, useValue: mockService }],
-    }).compile();
+    })
+      .overrideGuard(TwilioWebhookGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<TwilioController>(TwilioController);
     service = module.get(TwilioService);
@@ -71,15 +78,16 @@ describe('TwilioController', () => {
       };
 
       const mockRequest = { body: webhookData } as Request;
+      const mockEnd = jest.fn();
       type MockResponse = {
         status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
-        json: jest.MockedFunction<(this: void, body: unknown) => void>;
+        end: jest.MockedFunction<(this: void) => void>;
       };
       const mockResponse: MockResponse = {
         status: jest.fn<MockResponse, [number]>(),
-        json: jest.fn<void, [unknown]>(),
+        end: mockEnd,
       };
-      mockResponse.status.mockImplementation(() => mockResponse);
+      mockResponse.status.mockReturnValue(mockResponse as unknown as Response);
 
       const processResult = {
         success: true,
@@ -96,22 +104,25 @@ describe('TwilioController', () => {
       );
 
       expect(service.processIncomingMessage).toHaveBeenCalledWith(webhookData);
-      expect(mockResponse.status.mock.calls[0]?.[0]).toBe(200);
-      expect(mockResponse.json.mock.calls[0]?.[0]).toEqual(processResult);
+      expect(mockResponse.status).toHaveBeenCalledWith(200);
+      expect(mockEnd).toHaveBeenCalled();
     });
 
     it('debe manejar errores del webhook', async () => {
       const webhookData = {};
       const mockRequest = { body: webhookData } as Request;
+      const mockEnd = jest.fn();
       type MockResponse = {
         status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
         json: jest.MockedFunction<(this: void, body: unknown) => void>;
+        end: jest.MockedFunction<(this: void) => void>;
       };
       const mockResponse: MockResponse = {
         status: jest.fn<MockResponse, [number]>(),
         json: jest.fn<void, [unknown]>(),
+        end: mockEnd,
       };
-      mockResponse.status.mockImplementation(() => mockResponse);
+      mockResponse.status.mockReturnValue(mockResponse as unknown as Response);
 
       service.processIncomingMessage.mockRejectedValue(new Error('Test error'));
 
@@ -121,7 +132,7 @@ describe('TwilioController', () => {
         mockResponse as unknown as Response,
       );
 
-      expect(mockResponse.status.mock.calls[0]?.[0]).toBe(500);
+      expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
   });
 

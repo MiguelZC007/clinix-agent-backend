@@ -9,13 +9,19 @@ import {
   Logger,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { TwilioService } from './twilio.service';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
+import { SendWhatsAppTemplateDto } from './dto/send-whatsapp-template.dto';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
+import environment from 'src/core/config/environments';
 import { Public } from '../auth/decorators/public.decorator';
+import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 
 @ApiTags('Twilio WhatsApp')
 @Controller('twilio')
@@ -24,11 +30,13 @@ export class TwilioController {
 
   constructor(private readonly twilioService: TwilioService) {}
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('whatsapp/send')
   @ApiOperation({
-    summary: 'Enviar mensaje de WhatsApp',
+    summary: 'Enviar mensaje de WhatsApp (ventana 24h)',
     description:
-      'Envía un mensaje de texto o multimedia a través de WhatsApp usando Twilio',
+      'Envía texto libre solo dentro de la ventana de 24h (respuesta a mensaje del usuario o mensaje iniciado por el sistema dentro de ventana). Usar whatsapp/send-template para mensajes proactivos fuera de 24h.',
   })
   @ApiResponse({
     status: 200,
@@ -54,7 +62,47 @@ export class TwilioController {
     );
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('whatsapp/send-template')
+  @ApiOperation({
+    summary: 'Enviar plantilla WhatsApp (proactivo)',
+    description:
+      'Envía un mensaje usando una plantilla aprobada por WhatsApp. Uso obligatorio para mensajes proactivos fuera de la ventana de 24h. No usar texto libre fuera de ventana.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Plantilla enviada exitosamente',
+    schema: {
+      example: {
+        success: true,
+        messageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        status: 'queued',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Error en los datos enviados' })
+  @ApiResponse({ status: 500, description: 'Error interno del servidor' })
+  async sendWhatsAppTemplate(@Body() dto: SendWhatsAppTemplateDto) {
+    const fromNumber = environment.TWILIO_WHATSAPP_FROM;
+    return await this.twilioService.sendProactiveTemplate(
+      fromNumber,
+      dto.to,
+      dto.contentSid,
+      dto.contentVariables,
+    );
+  }
+
   @Public()
+  @UseGuards(TwilioWebhookGuard, ThrottlerGuard)
+  @Throttle({
+    default: {
+      limit: 30,
+      ttl: 60_000,
+      getTracker: (req: Request) =>
+        (req.body as { From?: string } | undefined)?.From ?? req.ip ?? 'unknown',
+    },
+  })
   @Post('webhook/whatsapp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

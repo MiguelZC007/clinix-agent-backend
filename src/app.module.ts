@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -14,6 +15,9 @@ import { ClinicHistoryModule } from './modules/clinic-history/clinic-history.mod
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      { name: 'default', limit: 60, ttl: 60_000 },
+    ]),
     PrismaModule,
     AuthModule,
     OpenaiModule,
