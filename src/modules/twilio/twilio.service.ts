@@ -69,6 +69,11 @@ export class TwilioService {
 
       this.logger.log('=====================================');
 
+      await this.sendWhatsAppMessage(phoneNumber, 'Hola, ¿cómo estás?');
+      await this.delay(MESSAGE_DELAY_MS);
+      await this.sendWhatsAppMessage(phoneNumber, '¿Qué te gustaría hacer hoy?');
+      await this.delay(MESSAGE_DELAY_MS);
+
       return {
         success: true,
         message: 'Mensaje procesado y respondido correctamente',
@@ -163,7 +168,7 @@ export class TwilioService {
 
   private async sendWhatsAppMessage(to: string, body: string) {
     try {
-      const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
+      const fromNumber = environment.TWILIO_WHATSAPP_FROM;
       const toNumber = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
 
       this.logger.log(
