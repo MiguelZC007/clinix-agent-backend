@@ -64,15 +64,15 @@ Content-Type: application/json
 ### Webhook para Mensajes Entrantes
 
 ```http
-POST /twilio/webhook/whatsapp
+POST /v1/twilio/webhook/whatsapp
 ```
 
-Este endpoint recibe automáticamente los mensajes enviados a tu número de WhatsApp.
+Este endpoint recibe automáticamente los mensajes enviados a tu número de WhatsApp. **Importante:** la URL configurada en Twilio debe incluir el prefijo global `/v1` (ej: `https://tu-dominio.com/v1/twilio/webhook/whatsapp`).
 
 ### Consultar Estado de Mensaje
 
 ```http
-GET /twilio/message/{messageSid}/status
+GET /v1/twilio/message/{messageSid}/status
 ```
 
 ## Uso en Desarrollo
@@ -106,8 +106,16 @@ npm install -g ngrok
 ngrok http 3000
 
 # Usar la URL de ngrok en la configuración del webhook de Twilio
-# Ejemplo: https://abc123.ngrok.io/twilio/webhook/whatsapp
+# Ejemplo: https://abc123.ngrok.io/v1/twilio/webhook/whatsapp
 ```
+
+### 4. Despliegue detrás de proxy
+
+Si la API está detrás de un proxy o load balancer, la validación de firma (`X-Twilio-Signature`) usa `request.protocol` y `request.get('host')`. Configura **trust proxy** en Express/NestJS y los headers `X-Forwarded-Proto` y `X-Forwarded-Host` para que la URL con la que se calcula la firma coincida con la URL pública configurada en Twilio.
+
+### 5. Alta carga (opcional)
+
+El webhook procesa cada mensaje de forma síncrona (OpenAI + envío de respuesta). Si OpenAI o Twilio tardan, Twilio puede hacer timeout (~15 s) y reenviar. Para producción bajo carga se recomienda el patrón **ACK rápido + cola**: responder 200 enseguida tras validar firma e idempotencia y encolar el trabajo (OpenAI + envío) en una cola (ej: Bull) para no bloquear la request.
 
 ## Funcionalidades
 
