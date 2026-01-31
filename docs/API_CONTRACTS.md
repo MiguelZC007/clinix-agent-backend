@@ -1,7 +1,8 @@
 # API Contracts (formato Frontend)
 
-Base URL: `http://localhost:3000`
+Base URL: `http://localhost:4000`
 Prefix: `v1`
+URL completa API: `http://localhost:4000/v1`
 
 Respuesta exitosa (wrapper global):
 response:
@@ -58,6 +59,47 @@ response:
   timestamp: string;
 }
 code: 200
+
+url: POST v1/auth/forgot-password (público)
+dto:
+{
+  headers: {};
+  params: {};
+  query: {};
+  body: { phone: string; };
+}
+response:
+{
+  success: boolean;
+  data: { message: string; };
+  message?: string;
+  timestamp: string;
+}
+code: 200
+note: Genera OTP de 6 dígitos, lo guarda en caché (10 min), envía el código por WhatsApp (Twilio). Respuesta genérica siempre (no revela si el número está registrado).
+
+url: POST v1/auth/reset-password (público)
+dto:
+{
+  headers: {};
+  params: {};
+  query: {};
+  body: {
+    phone: string;
+    code: string;
+    newPassword: string;
+    confirmPassword: string;
+  };
+}
+response:
+{
+  success: boolean;
+  data: { message: string; };
+  message?: string;
+  timestamp: string;
+}
+code: 200
+note: Valida OTP contra caché, newPassword === confirmPassword, actualiza User.password. 400 si OTP inválido/expirado (invalid-or-expired-otp) o contraseñas no coinciden (passwords-do-not-match).
 
 url: POST v1/auth/logout
 dto:
