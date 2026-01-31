@@ -4,14 +4,24 @@ Base URL: `http://localhost:4000`
 Prefix: `v1`
 URL completa API: `http://localhost:4000/v1`
 
-Respuesta exitosa (wrapper global):
-response:
-{
-  success: boolean;
-  data: unknown;
-  message?: string;
-  timestamp: string;
-}
+## Formas de respuesta (definidas una vez)
+
+**ApiResponse&lt;T&gt;** (éxito):
+```
+{ success: boolean; data: T; message?: string; timestamp: string; }
+```
+Regla: en éxito, `data` siempre es objeto (salvo streaming/webhooks indicados).
+
+**ProblemDetails** (error):
+```
+{ type: string; title: string; status: number; code: string; detail: string; errors?: ValidationErrorDto[]; timestamp: string; }
+```
+
+**Paginated&lt;T&gt;** (listas paginadas):
+```
+{ items: T[]; page: number; pageSize: number; total: number; totalPages: number; }
+```
+Respuestas de lista paginada = `ApiResponse<Paginated<T>>`.
 
 Nota: por el guard global, **todos los endpoints requieren** `Authorization: Bearer <token>` excepto los que se marcan como público.
 
@@ -164,27 +174,12 @@ dto:
 {
   headers: { Authorization: 'Bearer <token>' };
   params: {};
-  query: {};
+  query: { page?: number; pageSize?: number; search?: string; };
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: Array<{
-    id: string;
-    email: string;
-    name: string;
-    lastName: string;
-    phone: string;
-    address?: string;
-    gender?: 'male' | 'female';
-    birthDate?: string;
-    createdAt: string;
-    updatedAt: string;
-  }>;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;Paginated&lt;PatientDto&gt;&gt;
+data: { items: PatientDto[]; page: number; pageSize: number; total: number; totalPages: number; }
+PatientDto: { id: string; email: string; name: string; lastName: string; phone: string; address?: string; gender?: 'male' | 'female'; birthDate?: string; createdAt: string; updatedAt: string; }
 code: 200
 
 url: GET v1/patients/:id
@@ -260,8 +255,8 @@ dto:
   query: {};
   body: {};
 }
-response: {}
-code: 204
+response: ApiResponse&lt;{ deleted: true; id: string }&gt;
+code: 200
 
 url: GET v1/patients/:id/antecedents
 dto:
@@ -941,6 +936,8 @@ code: 200
 
 ## Módulo: User
 
+UserDto: { id: string; email?: string; name?: string; lastName?: string; phone?: string; } (objeto; no usar data: string).
+
 url: POST v1/user
 dto:
 {
@@ -949,13 +946,7 @@ dto:
   query: {};
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: string;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;UserDto&gt; o ApiResponse&lt;{ message: string }&gt; según implementación
 code: 201
 
 url: GET v1/user
@@ -966,13 +957,7 @@ dto:
   query: {};
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: string;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;UserDto[]&gt; o ApiResponse&lt;{ message: string }&gt; según implementación
 code: 200
 
 url: GET v1/user/:id
@@ -983,13 +968,7 @@ dto:
   query: {};
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: string;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;UserDto&gt; o ApiResponse&lt;{ message: string }&gt; según implementación
 code: 200
 
 url: PATCH v1/user/:id
@@ -1000,13 +979,7 @@ dto:
   query: {};
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: string;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;UserDto&gt; o ApiResponse&lt;{ message: string }&gt; según implementación
 code: 200
 
 url: DELETE v1/user/:id
@@ -1017,11 +990,5 @@ dto:
   query: {};
   body: {};
 }
-response:
-{
-  success: boolean;
-  data: string;
-  message?: string;
-  timestamp: string;
-}
+response: ApiResponse&lt;{ deleted: true; id: string }&gt; o ApiResponse&lt;{ message: string }&gt; según implementación
 code: 200

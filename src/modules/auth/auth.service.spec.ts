@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -8,6 +9,7 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from 'src/prisma/__mocks__/prisma.service.mock';
+import { TwilioService } from '../twilio/twilio.service';
 import { LoginDto } from './dto/login.dto';
 
 jest.mock('bcrypt');
@@ -41,11 +43,26 @@ describe('AuthService', () => {
       decode: jest.fn(),
     };
 
+    const mockCache = {
+      get: jest.fn(),
+      set: jest.fn(),
+      del: jest.fn(),
+      reset: jest.fn(),
+      wrap: jest.fn(),
+      store: {},
+    };
+
+    const mockTwilioService = {
+      sendDirectMessage: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: CACHE_MANAGER, useValue: mockCache },
+        { provide: TwilioService, useValue: mockTwilioService },
       ],
     }).compile();
 

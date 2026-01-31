@@ -7,6 +7,7 @@ import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import type { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 
 describe('AppointmentController', () => {
@@ -18,7 +19,13 @@ describe('AppointmentController', () => {
       (this: void, dto: CreateAppointmentDto) => Promise<AppointmentResponseDto>
     >;
     findAll: jest.MockedFunction<
-      (this: void) => Promise<AppointmentResponseDto[]>
+      (
+        this: void,
+        page: number,
+        limit: number,
+        startDate?: string,
+        endDate?: string,
+      ) => Promise<PaginationResponseDto<AppointmentResponseDto>>
     >;
     findOne: jest.MockedFunction<
       (this: void, id: string) => Promise<AppointmentResponseDto>
@@ -111,13 +118,19 @@ describe('AppointmentController', () => {
   });
 
   describe('findAll', () => {
-    it('debe llamar a appointmentService.findAll', async () => {
-      service.findAll.mockResolvedValue([mockAppointmentResponse]);
+    it('debe llamar a appointmentService.findAll con query', async () => {
+      const paginatedResponse: PaginationResponseDto<AppointmentResponseDto> = {
+        data: [mockAppointmentResponse],
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+      };
+      service.findAll.mockResolvedValue(paginatedResponse);
 
-      const result = await controller.findAll();
+      const query = { page: 1, limit: 10 };
+      const result = await controller.findAll(query);
 
-      expect(service.findAll).toHaveBeenCalled();
-      expect(result).toHaveLength(1);
+      expect(service.findAll).toHaveBeenCalledWith(1, 10, undefined, undefined);
+      expect(result.data).toHaveLength(1);
+      expect(result.meta.page).toBe(1);
     });
   });
 

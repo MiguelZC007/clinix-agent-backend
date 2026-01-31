@@ -70,8 +70,8 @@ export class AuthGuard implements CanActivate {
         throw new UnauthorizedException('user-not-found');
       }
 
-      request['user'] = user;
-      request['token'] = token;
+      (request as unknown as Record<string, unknown>)['user'] = user;
+      (request as unknown as Record<string, unknown>)['token'] = token;
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;

@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PatientController } from './patient.controller';
 import { PatientService } from './patient.service';
+import type { PatientListResultDto } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { UpdatePatientAntecedentsDto } from './dto/update-patient-antecedents.dto';
 import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
+import type { PatientListQueryDto } from './dto/patient-list-query.dto';
 import { Gender } from 'src/core/enum/gender.enum';
 
 describe('PatientController', () => {
@@ -14,7 +16,9 @@ describe('PatientController', () => {
     create: jest.MockedFunction<
       (this: void, dto: CreatePatientDto) => Promise<PatientResponseDto>
     >;
-    findAll: jest.MockedFunction<(this: void) => Promise<PatientResponseDto[]>>;
+    findAll: jest.MockedFunction<
+      (this: void, query: PatientListQueryDto) => Promise<PatientListResultDto>
+    >;
     findOne: jest.MockedFunction<
       (this: void, id: string) => Promise<PatientResponseDto>
     >;
@@ -25,7 +29,9 @@ describe('PatientController', () => {
         dto: UpdatePatientDto,
       ) => Promise<PatientResponseDto>
     >;
-    remove: jest.MockedFunction<(this: void, id: string) => Promise<void>>;
+    remove: jest.MockedFunction<
+      (this: void, id: string) => Promise<{ deleted: true; id: string }>
+    >;
     getAntecedents: jest.MockedFunction<
       (this: void, id: string) => Promise<PatientAntecedentsDto>
     >;
@@ -107,13 +113,22 @@ describe('PatientController', () => {
   });
 
   describe('findAll', () => {
-    it('debe llamar a patientService.findAll', async () => {
-      service.findAll.mockResolvedValue([mockPatientResponse]);
+    it('debe llamar a patientService.findAll con query', async () => {
+      const paginatedResult: PatientListResultDto = {
+        items: [mockPatientResponse],
+        page: 1,
+        pageSize: 10,
+        total: 1,
+        totalPages: 1,
+      };
+      service.findAll.mockResolvedValue(paginatedResult);
 
-      const result = await controller.findAll();
+      const query = { page: 1, pageSize: 10 };
+      const result = await controller.findAll(query);
 
-      expect(service.findAll).toHaveBeenCalled();
-      expect(result).toHaveLength(1);
+      expect(service.findAll).toHaveBeenCalledWith(query);
+      expect(result).toEqual(paginatedResult);
+      expect(result.items).toHaveLength(1);
     });
   });
 
@@ -145,11 +160,15 @@ describe('PatientController', () => {
 
   describe('remove', () => {
     it('debe llamar a patientService.remove con el ID', async () => {
-      service.remove.mockResolvedValue(undefined);
+      service.remove.mockResolvedValue({
+        deleted: true,
+        id: 'patient-uuid',
+      });
 
-      await controller.remove('patient-uuid');
+      const result = await controller.remove('patient-uuid');
 
       expect(service.remove).toHaveBeenCalledWith('patient-uuid');
+      expect(result).toEqual({ deleted: true, id: 'patient-uuid' });
     });
   });
 
