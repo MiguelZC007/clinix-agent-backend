@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
+import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import {
   ClinicHistoryResponseDto,
   DiagnosticResponseDto,
@@ -15,6 +16,14 @@ import {
   ClinicHistoryPatientDto,
   ClinicHistoryDoctorDto,
 } from './dto/clinic-history-response.dto';
+
+export interface ClinicHistoryListResultDto {
+  items: ClinicHistoryResponseDto[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 
 @Injectable()
 export class ClinicHistoryService {
@@ -108,22 +117,41 @@ export class ClinicHistoryService {
     return this.mapToClinicHistoryResponse(clinicHistory);
   }
 
-  async findAll(): Promise<ClinicHistoryResponseDto[]> {
-    const clinicHistories = await this.prisma.clinicHistory.findMany({
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-        diagnostics: true,
-        physicalExams: true,
-        vitalSigns: true,
-        prescription: {
-          include: { prescriptionMedications: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(
+    query: FindAllClinicHistoriesQueryDto,
+  ): Promise<ClinicHistoryListResultDto> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 10;
+    const where = {};
 
-    return clinicHistories.map((ch) => this.mapToClinicHistoryResponse(ch));
+    const [clinicHistories, total] = await this.prisma.$transaction([
+      this.prisma.clinicHistory.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+          diagnostics: true,
+          physicalExams: true,
+          vitalSigns: true,
+          prescription: {
+            include: { prescriptionMedications: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.clinicHistory.count({ where }),
+    ]);
+
+    const items = clinicHistories.map((ch) => this.mapToClinicHistoryResponse(ch));
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: string): Promise<ClinicHistoryResponseDto> {

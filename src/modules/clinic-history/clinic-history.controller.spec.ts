@@ -3,8 +3,9 @@ import {
   ClinicHistoryController,
   PatientClinicHistoriesController,
 } from './clinic-history.controller';
-import { ClinicHistoryService } from './clinic-history.service';
+import { ClinicHistoryService, ClinicHistoryListResultDto } from './clinic-history.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
+import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
 
 describe('ClinicHistoryController', () => {
@@ -18,7 +19,10 @@ describe('ClinicHistoryController', () => {
       ) => Promise<ClinicHistoryResponseDto>
     >;
     findAll: jest.MockedFunction<
-      (this: void) => Promise<ClinicHistoryResponseDto[]>
+      (
+        this: void,
+        query: FindAllClinicHistoriesQueryDto,
+      ) => Promise<ClinicHistoryListResultDto>
     >;
     findOne: jest.MockedFunction<
       (this: void, id: string) => Promise<ClinicHistoryResponseDto>
@@ -136,13 +140,22 @@ describe('ClinicHistoryController', () => {
   });
 
   describe('findAll', () => {
-    it('debe llamar a clinicHistoryService.findAll', async () => {
-      service.findAll.mockResolvedValue([mockClinicHistoryResponse]);
+    it('debe llamar a clinicHistoryService.findAll con query y retornar forma paginada', async () => {
+      const query: FindAllClinicHistoriesQueryDto = { page: 1, pageSize: 10 };
+      const paginated: ClinicHistoryListResultDto = {
+        items: [mockClinicHistoryResponse],
+        page: 1,
+        pageSize: 10,
+        total: 1,
+        totalPages: 1,
+      };
+      service.findAll.mockResolvedValue(paginated);
 
-      const result = await controller.findAll();
+      const result = await controller.findAll(query);
 
-      expect(service.findAll).toHaveBeenCalled();
-      expect(result).toHaveLength(1);
+      expect(service.findAll).toHaveBeenCalledWith(query);
+      expect(result).toEqual(paginated);
+      expect(result.items).toHaveLength(1);
     });
   });
 

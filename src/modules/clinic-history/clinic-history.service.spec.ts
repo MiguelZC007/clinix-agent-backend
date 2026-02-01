@@ -144,13 +144,30 @@ describe('ClinicHistoryService', () => {
   });
 
   describe('findAll', () => {
-    it('debe retornar lista de historias clínicas', async () => {
+    it('debe retornar lista paginada de historias clínicas', async () => {
+      prisma.$transaction.mockImplementation((args: unknown[]) =>
+        Promise.all(args as Promise<unknown>[]),
+      );
       prisma.clinicHistory.findMany.mockResolvedValue([mockClinicHistory]);
+      prisma.clinicHistory.count.mockResolvedValue(1);
 
-      const result = await service.findAll();
+      const result = await service.findAll({ page: 1, pageSize: 10 });
 
-      expect(result).toHaveLength(1);
-      expect(prisma.clinicHistory.findMany).toHaveBeenCalled();
+      expect(result).toEqual({
+        items: expect.any(Array),
+        page: 1,
+        pageSize: 10,
+        total: 1,
+        totalPages: 1,
+      });
+      expect(result.items).toHaveLength(1);
+      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 0,
+          take: 10,
+        }),
+      );
+      expect(prisma.clinicHistory.count).toHaveBeenCalledWith({ where: {} });
     });
   });
 

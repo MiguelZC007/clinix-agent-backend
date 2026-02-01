@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
@@ -13,8 +14,10 @@ import {
   ApiParam,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { ClinicHistoryService } from './clinic-history.service';
+import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
+import { ClinicHistoryService, ClinicHistoryListResultDto } from './clinic-history.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
+import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
 
 @ApiTags('Clinic Histories')
@@ -43,14 +46,25 @@ export class ClinicHistoryController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Obtener lista de todas las historias clínicas' })
+  @ApiOperation({ summary: 'Obtener lista paginada de historias clínicas' })
   @ApiResponse({
     status: 200,
-    description: 'Lista de historias clínicas',
-    type: [ClinicHistoryResponseDto],
+    description: 'Lista paginada de historias clínicas',
+    schema: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { $ref: '#/components/schemas/ClinicHistoryResponseDto' } },
+        page: { type: 'number' },
+        pageSize: { type: 'number' },
+        total: { type: 'number' },
+        totalPages: { type: 'number' },
+      },
+    } as SchemaObject,
   })
-  findAll(): Promise<ClinicHistoryResponseDto[]> {
-    return this.clinicHistoryService.findAll();
+  findAll(
+    @Query() query: FindAllClinicHistoriesQueryDto,
+  ): Promise<ClinicHistoryListResultDto> {
+    return this.clinicHistoryService.findAll(query);
   }
 
   @Get(':id')
