@@ -9,13 +9,19 @@ import {
   Logger,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { TwilioService } from './twilio.service';
 import { SendWhatsAppMessageDto } from './dto/send-whatsapp-message.dto';
+import { SendWhatsAppTemplateDto } from './dto/send-whatsapp-template.dto';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
+import environment from 'src/core/config/environments';
 import { Public } from '../auth/decorators/public.decorator';
+import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 
 @ApiTags('Twilio WhatsApp')
 @Controller('twilio')
@@ -24,11 +30,13 @@ export class TwilioController {
 
   constructor(private readonly twilioService: TwilioService) {}
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('whatsapp/send')
   @ApiOperation({
-    summary: 'Enviar mensaje de WhatsApp',
+    summary: 'Enviar mensaje de WhatsApp (ventana 24h)',
     description:
-      'Envía un mensaje de texto o multimedia a través de WhatsApp usando Twilio',
+      'Envía texto libre solo dentro de la ventana de 24h (respuesta a mensaje del usuario o mensaje iniciado por el sistema dentro de ventana). Usar whatsapp/send-template para mensajes proactivos fuera de 24h.',
   })
   @ApiResponse({
     status: 200,
@@ -54,7 +62,47 @@ export class TwilioController {
     );
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('whatsapp/send-template')
+  @ApiOperation({
+    summary: 'Enviar plantilla WhatsApp (proactivo)',
+    description:
+      'Envía un mensaje usando una plantilla aprobada por WhatsApp. Uso obligatorio para mensajes proactivos fuera de la ventana de 24h. No usar texto libre fuera de ventana.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Plantilla enviada exitosamente',
+    schema: {
+      example: {
+        success: true,
+        messageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        status: 'queued',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Error en los datos enviados' })
+  @ApiResponse({ status: 500, description: 'Error interno del servidor' })
+  async sendWhatsAppTemplate(@Body() dto: SendWhatsAppTemplateDto) {
+    const fromNumber = environment.TWILIO_WHATSAPP_FROM;
+    return await this.twilioService.sendProactiveTemplate(
+      fromNumber,
+      dto.to,
+      dto.contentSid,
+      dto.contentVariables,
+    );
+  }
+
   @Public()
+  @UseGuards(TwilioWebhookGuard, ThrottlerGuard)
+  @Throttle({
+    default: {
+      limit: 30,
+      ttl: 60_000,
+      getTracker: (req: Request) =>
+        (req.body as { From?: string } | undefined)?.From ?? req.ip ?? 'unknown',
+    },
+  })
   @Post('webhook/whatsapp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -97,20 +145,8 @@ export class TwilioController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Mensaje procesado correctamente',
-    schema: {
-      example: {
-        success: true,
-        message: 'Mensaje procesado correctamente',
-        data: {
-          messageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-          from: 'whatsapp:+1234567890',
-          to: 'whatsapp:+14155238886',
-          body: 'Hola, este es un mensaje recibido',
-          hasMedia: false,
-        },
-      },
-    },
+    description:
+      'Webhook aceptado. La respuesta al usuario se envía vía SDK (Messages API), no en el body HTTP.',
   })
   async receiveWhatsAppMessage(
     @Body() webhookData: WebhookMessageDto,
@@ -125,12 +161,9 @@ export class TwilioController {
         JSON.stringify(webhookData, null, 2),
       );
 
-      // Procesar el mensaje entrante
-      const result =
-        await this.twilioService.processIncomingMessage(webhookData);
+      await this.twilioService.processIncomingMessage(webhookData);
 
-      // Twilio espera una respuesta HTTP 200 para confirmar que el webhook fue procesado
-      res.status(200).json(result);
+      res.status(200).end();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       const stack = error instanceof Error ? error.stack : undefined;

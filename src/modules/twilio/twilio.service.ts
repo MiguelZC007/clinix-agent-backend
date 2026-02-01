@@ -1,19 +1,44 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ServiceUnavailableException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
-import { OpenaiService } from '../openai/openai.service';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { ReplyMessageHandler } from './reply-message.handler';
 import twilio from 'twilio';
+import environment from 'src/core/config/environments';
+import { Prisma } from '@prisma/client';
+import { isE164 } from './validators/phone.validator';
 
 const MAX_MESSAGE_LENGTH = 990;
-const MESSAGE_DELAY_MS = 500;
+
+export interface ProcessIncomingMessageResult {
+  success: boolean;
+  alreadyProcessed?: boolean;
+  message: string;
+  data: {
+    messageSid: string;
+    from: string;
+    responsePartsCount?: number;
+  };
+}
 
 @Injectable()
 export class TwilioService {
   private readonly logger = new Logger(TwilioService.name);
   private twilioClient: twilio.Twilio;
 
-  constructor(private readonly openaiService: OpenaiService) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => ReplyMessageHandler))
+    private readonly replyMessageHandler: ReplyMessageHandler,
+  ) {
+    const accountSid = environment.TWILIO_ACCOUNT_SID;
+    const authToken = environment.TWILIO_AUTH_TOKEN;
 
     if (!accountSid || !authToken) {
       this.logger.error(
@@ -26,57 +51,44 @@ export class TwilioService {
     this.logger.log('Cliente de Twilio inicializado correctamente');
   }
 
-  async processIncomingMessage(webhookData: WebhookMessageDto) {
+  async processIncomingMessage(
+    webhookData: WebhookMessageDto,
+  ): Promise<ProcessIncomingMessageResult> {
     try {
-      this.logger.log('=== MENSAJE RECIBIDO DE WHATSAPP ===');
-      this.logger.log(`De: ${webhookData.From}`);
-      this.logger.log(`Mensaje: ${webhookData.Body}`);
-
-      const phoneNumber = webhookData.From;
-      const userMessage = webhookData.Body;
-
-      let assistantResponse: string;
-
       try {
-        assistantResponse = await this.openaiService.processMessageFromDoctor(
-          phoneNumber,
-          userMessage,
-        );
-      } catch (error) {
-        const status = this.getErrorStatus(error);
-        if (status === 404) {
-          assistantResponse =
-            'No estás registrado como médico en el sistema. Por favor, contacta al administrador.';
-        } else {
-          this.logger.error(
-            `Error procesando mensaje con OpenAI: ${this.getErrorMessage(error)}`,
+        await this.prisma.processedWebhookMessage.create({
+          data: { messageSid: webhookData.MessageSid },
+        });
+      } catch (createError) {
+        if (
+          createError instanceof Prisma.PrismaClientKnownRequestError &&
+          createError.code === 'P2002'
+        ) {
+          this.logger.log(
+            `MessageSid ${webhookData.MessageSid} ya procesado, omitiendo`,
           );
-          assistantResponse =
-            'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
+          return {
+            success: true,
+            alreadyProcessed: true,
+            message: 'Mensaje ya procesado',
+            data: {
+              messageSid: webhookData.MessageSid,
+              from: webhookData.From,
+            },
+          };
         }
+        throw createError;
       }
 
-      const messageParts = this.splitMessage(assistantResponse);
-
-      for (let i = 0; i < messageParts.length; i++) {
-        await this.sendWhatsAppMessage(phoneNumber, messageParts[i]);
-
-        if (i < messageParts.length - 1) {
-          await this.delay(MESSAGE_DELAY_MS);
-        }
+      const allowedFromNumbers = this.getAllowedWhatsAppFromNumbers();
+      if (!allowedFromNumbers.includes(webhookData.To)) {
+        this.logger.warn(
+          `Webhook To ${webhookData.To} no está en la lista de números permitidos`,
+        );
+        throw new BadRequestException('twilio-channel-not-allowed');
       }
 
-      this.logger.log('=====================================');
-
-      return {
-        success: true,
-        message: 'Mensaje procesado y respondido correctamente',
-        data: {
-          messageSid: webhookData.MessageSid,
-          from: webhookData.From,
-          responsePartsCount: messageParts.length,
-        },
-      };
+      return this.replyMessageHandler.handle(webhookData);
     } catch (error) {
       this.logger.error(
         `Error procesando mensaje entrante: ${this.getErrorMessage(error)}`,
@@ -160,19 +172,45 @@ export class TwilioService {
     return parts;
   }
 
-  private async sendWhatsAppMessage(to: string, body: string) {
+  private getAllowedWhatsAppFromNumbers(): string[] {
+    const fromEnv = environment.TWILIO_WHATSAPP_FROM;
+    if (!fromEnv) return [];
+    return [fromEnv.trim()];
+  }
+
+  async sendReply(
+    fromWhatsAppNumber: string,
+    to: string,
+    body: string,
+  ): Promise<{ success: boolean; messageSid: string | null; status: string }> {
+    return this.sendWhatsAppMessageWithFrom(fromWhatsAppNumber, to, body);
+  }
+
+  private async sendWhatsAppMessageWithFrom(
+    fromNumber: string,
+    to: string,
+    body: string,
+  ): Promise<{ success: boolean; messageSid: string | null; status: string }> {
+    if (!this.isValidE164(to)) {
+      throw new BadRequestException('invalid-phone-format');
+    }
+    if (!this.isValidE164(fromNumber)) {
+      throw new BadRequestException('invalid-phone-format');
+    }
     try {
-      const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
-      const toNumber = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+      const toNormalized = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+      const fromNormalized = fromNumber.startsWith('whatsapp:')
+        ? fromNumber
+        : `whatsapp:${fromNumber}`;
 
       this.logger.log(
-        `Enviando mensaje de WhatsApp a ${toNumber} (${body.length} chars)`,
+        `Enviando mensaje de WhatsApp de ${fromNormalized} a ${toNormalized} (${body.length} chars)`,
       );
 
       const message = await this.twilioClient.messages.create({
-        from: fromNumber,
-        to: toNumber,
-        body: body,
+        from: fromNormalized,
+        to: toNormalized,
+        body,
       });
 
       this.logger.log(`Mensaje enviado exitosamente. SID: ${message.sid}`);
@@ -187,16 +225,128 @@ export class TwilioService {
         `Error enviando mensaje de WhatsApp: ${this.getErrorMessage(error)}`,
         this.getErrorStack(error),
       );
+      if (this.isRetryableTwilioError(error)) {
+        throw new ServiceUnavailableException('twilio-send-retryable');
+      }
       throw new BadRequestException('twilio-send-failed');
     }
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private isValidE164(phone: string): boolean {
+    return isE164(phone);
+  }
+
+  private isRetryableTwilioError(error: unknown): boolean {
+    const status = this.getErrorStatus(error);
+    if (status === undefined) return false;
+    if (status === 429) return true;
+    if (status >= 500 && status < 600) return true;
+    return false;
+  }
+
+  private async sendWhatsAppMessage(to: string, body: string) {
+    const fromNumber = environment.TWILIO_WHATSAPP_FROM;
+    return this.sendWhatsAppMessageWithFrom(fromNumber, to, body);
   }
 
   async sendDirectMessage(to: string, body: string) {
     return this.sendWhatsAppMessage(to, body);
+  }
+
+  async sendProactiveTemplate(
+    fromNumber: string,
+    to: string,
+    contentSid: string,
+    contentVariables?: Record<string, string>,
+  ): Promise<{
+    success: boolean;
+    messageSid: string | null;
+    status: string;
+  }> {
+    if (!this.isValidE164(to) || !this.isValidE164(fromNumber)) {
+      throw new BadRequestException('invalid-phone-format');
+    }
+    try {
+      const toNormalized = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+      const fromNormalized = fromNumber.startsWith('whatsapp:')
+        ? fromNumber
+        : `whatsapp:${fromNumber}`;
+
+      this.logger.log(
+        `Enviando plantilla WhatsApp de ${fromNormalized} a ${toNormalized} (contentSid: ${contentSid})`,
+      );
+
+      const createParams: {
+        from: string;
+        to: string;
+        contentSid: string;
+        contentVariables?: string;
+      } = {
+        from: fromNormalized,
+        to: toNormalized,
+        contentSid,
+      };
+      if (
+        contentVariables &&
+        Object.keys(contentVariables).length > 0
+      ) {
+        createParams.contentVariables = JSON.stringify(contentVariables);
+      }
+
+      const message = await this.twilioClient.messages.create(createParams);
+
+      this.logger.log(`Plantilla enviada exitosamente. SID: ${message.sid}`);
+
+      return {
+        success: true,
+        messageSid: message.sid,
+        status: message.status,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error enviando plantilla WhatsApp: ${this.getErrorMessage(error)}`,
+        this.getErrorStack(error),
+      );
+      if (this.isRetryableTwilioError(error)) {
+        throw new ServiceUnavailableException('twilio-send-template-retryable');
+      }
+      throw new BadRequestException('twilio-send-template-failed');
+    }
+  }
+
+  async updateLastInbound(channelNumber: string, userPhone: string): Promise<void> {
+    await this.prisma.whatsAppContactWindow.upsert({
+      where: {
+        channelNumber_userPhone: {
+          channelNumber,
+          userPhone,
+        },
+      },
+      create: {
+        channelNumber,
+        userPhone,
+      },
+      update: {
+        lastInboundAt: new Date(),
+      },
+    });
+  }
+
+  async isWithin24h(
+    channelNumber: string,
+    userPhone: string,
+  ): Promise<boolean> {
+    const row = await this.prisma.whatsAppContactWindow.findUnique({
+      where: {
+        channelNumber_userPhone: {
+          channelNumber,
+          userPhone,
+        },
+      },
+    });
+    if (!row) return false;
+    const hoursSince = (Date.now() - row.lastInboundAt.getTime()) / (1000 * 60 * 60);
+    return hoursSince < 24;
   }
 
   async getMessageStatus(messageSid: string) {

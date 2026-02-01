@@ -1,0 +1,40 @@
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
+import { Request } from 'express';
+import twilio from 'twilio';
+import environment from 'src/core/config/environments';
+
+@Injectable()
+export class TwilioWebhookGuard implements CanActivate {
+  private readonly logger = new Logger(TwilioWebhookGuard.name);
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<Request>();
+    const authToken = environment.TWILIO_AUTH_TOKEN;
+    if (!authToken) {
+      this.logger.error('TWILIO_AUTH_TOKEN no configurado para validar webhook');
+      throw new ForbiddenException('twilio-webhook-validation-unavailable');
+    }
+    const signature = request.header('X-Twilio-Signature') ?? '';
+    const protocol = request.protocol;
+    const host = request.get('host') ?? '';
+    const webhookUrl = `${protocol}://${host}${request.originalUrl}`;
+    const params = (request.body as Record<string, string>) ?? {};
+    const isValid = twilio.validateRequest(
+      authToken,
+      signature,
+      webhookUrl,
+      params,
+    );
+    if (!isValid) {
+      this.logger.warn('Firma de webhook Twilio inválida');
+      throw new ForbiddenException('twilio-webhook-signature-invalid');
+    }
+    return true;
+  }
+}

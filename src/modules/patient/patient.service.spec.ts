@@ -92,23 +92,27 @@ describe('PatientService', () => {
   });
 
   describe('findAll', () => {
-    it('debe retornar lista de pacientes', async () => {
-      prisma.user.findMany.mockResolvedValue([
-        { ...mockUser, patient: mockPatient },
-      ]);
+    it('debe retornar lista paginada de pacientes', async () => {
+      prisma.$transaction.mockResolvedValue([[mockPatient], 1]);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
-      expect(result).toHaveLength(1);
-      expect(prisma.user.findMany).toHaveBeenCalled();
+      expect(result.items).toHaveLength(1);
+      expect(result.page).toBe(1);
+      expect(result.pageSize).toBe(10);
+      expect(result.total).toBe(1);
+      expect(result.totalPages).toBe(1);
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
 
     it('debe retornar lista vacía si no hay pacientes', async () => {
-      prisma.user.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockResolvedValue([[], 0]);
 
-      const result = await service.findAll();
+      const result = await service.findAll({ page: 1, pageSize: 10 });
 
-      expect(result).toHaveLength(0);
+      expect(result.items).toHaveLength(0);
+      expect(result.total).toBe(0);
+      expect(result.totalPages).toBe(0);
     });
   });
 
@@ -174,7 +178,9 @@ describe('PatientService', () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.$transaction.mockResolvedValue(undefined);
 
-      await expect(service.remove('patient-uuid')).resolves.toBeUndefined();
+      const result = await service.remove('patient-uuid');
+
+      expect(result).toEqual({ deleted: true, id: 'patient-uuid' });
     });
 
     it('debe lanzar NotFoundException si el paciente no existe', async () => {

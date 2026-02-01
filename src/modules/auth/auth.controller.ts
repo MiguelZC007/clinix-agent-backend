@@ -9,6 +9,8 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -54,6 +56,55 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @ApiOperation({
+    summary: 'Solicitar código OTP por WhatsApp para recuperar contraseña',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Solicitud procesada (mensaje genérico)',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          message:
+            'Si el número está registrado, recibirás un código por WhatsApp en los próximos minutos.',
+        },
+        timestamp: '2026-01-20T10:30:00.000Z',
+      },
+    },
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.phone);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @ApiOperation({
+    summary: 'Restablecer contraseña con código OTP recibido por WhatsApp',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contraseña actualizada correctamente',
+    schema: {
+      example: {
+        success: true,
+        data: { message: 'Contraseña actualizada correctamente' },
+        timestamp: '2026-01-20T10:30:00.000Z',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'OTP inválido o expirado / contraseñas no coinciden' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(
+      dto.phone,
+      dto.code,
+      dto.newPassword,
+      dto.confirmPassword,
+    );
   }
 
   @Post('logout')

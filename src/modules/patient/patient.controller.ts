@@ -7,9 +7,8 @@ import {
   Param,
   Delete,
   Put,
+  Query,
   ParseUUIDPipe,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,12 +17,14 @@ import {
   ApiParam,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { PatientService } from './patient.service';
+import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
+import { PatientService, PatientListResultDto } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { UpdatePatientAntecedentsDto } from './dto/update-patient-antecedents.dto';
 import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
+import { PatientListQueryDto } from './dto/patient-list-query.dto';
 
 @ApiTags('Patients')
 @Controller('patients')
@@ -47,14 +48,23 @@ export class PatientController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Obtener lista de todos los pacientes' })
+  @ApiOperation({ summary: 'Obtener lista de pacientes paginada' })
   @ApiResponse({
     status: 200,
-    description: 'Lista de pacientes',
-    type: [PatientResponseDto],
+    description: 'Lista paginada de pacientes',
+    schema: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { $ref: '#/components/schemas/PatientResponseDto' } },
+        page: { type: 'number' },
+        pageSize: { type: 'number' },
+        total: { type: 'number' },
+        totalPages: { type: 'number' },
+      },
+    } as SchemaObject,
   })
-  findAll(): Promise<PatientResponseDto[]> {
-    return this.patientService.findAll();
+  findAll(@Query() query: PatientListQueryDto): Promise<PatientListResultDto> {
+    return this.patientService.findAll(query);
   }
 
   @Get(':id')
@@ -88,12 +98,23 @@ export class PatientController {
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Eliminar un paciente' })
   @ApiParam({ name: 'id', description: 'ID del paciente (UUID)' })
-  @ApiResponse({ status: 204, description: 'Paciente eliminado' })
+  @ApiResponse({
+    status: 200,
+    description: 'Paciente eliminado',
+    schema: {
+      type: 'object',
+      properties: {
+        deleted: { type: 'boolean', example: true },
+        id: { type: 'string' },
+      },
+    } as SchemaObject,
+  })
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
-  remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ deleted: true; id: string }> {
     return this.patientService.remove(id);
   }
 

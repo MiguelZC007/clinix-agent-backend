@@ -9,7 +9,16 @@ import { UpdatePatientDto } from './dto/update-patient.dto';
 import { UpdatePatientAntecedentsDto } from './dto/update-patient-antecedents.dto';
 import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
+import { PatientListQueryDto } from './dto/patient-list-query.dto';
 import { Gender } from 'src/core/enum/gender.enum';
+
+export interface PatientListResultDto {
+  items: PatientResponseDto[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 
 @Injectable()
 export class PatientService {
@@ -60,14 +69,44 @@ export class PatientService {
     return this.mapToPatientResponse(user);
   }
 
-  async findAll(): Promise<PatientResponseDto[]> {
-    const patients = await this.prisma.patient.findMany({
-      include: {
-        user: true,
-      },
-    });
+  async findAll(
+    query: PatientListQueryDto,
+  ): Promise<PatientListResultDto> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 10;
+    const search = query.search?.trim();
 
-    return patients.map((patient) => this.mapToPatientResponseFromPatient(patient));
+    const where = search
+      ? {
+          user: {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' as const } },
+              { lastName: { contains: search, mode: 'insensitive' as const } },
+              { phone: { contains: search } },
+            ],
+          },
+        }
+      : {};
+
+    const [patients, total] = await this.prisma.$transaction([
+      this.prisma.patient.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: { user: true },
+      }),
+      this.prisma.patient.count({ where }),
+    ]);
+
+    const items = patients.map((p) => this.mapToPatientResponseFromPatient(p));
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: string): Promise<PatientResponseDto> {
@@ -144,7 +183,7 @@ export class PatientService {
     return this.mapToPatientResponseFromPatient(updatedPatient);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string): Promise<{ deleted: true; id: string }> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
     });
@@ -157,6 +196,8 @@ export class PatientService {
       this.prisma.patient.delete({ where: { id } }),
       this.prisma.user.delete({ where: { id: patient.userId } }),
     ]);
+
+    return { deleted: true, id };
   }
 
   async getAntecedents(id: string): Promise<PatientAntecedentsDto> {

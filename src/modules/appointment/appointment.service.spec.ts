@@ -145,13 +145,19 @@ describe('AppointmentService', () => {
   });
 
   describe('findAll', () => {
-    it('debe retornar lista de citas', async () => {
+    it('debe retornar lista de citas paginada', async () => {
       prisma.appointment.findMany.mockResolvedValue([mockAppointment]);
+      prisma.appointment.count.mockResolvedValue(1);
 
-      const result = await service.findAll();
+      const result = await service.findAll(1, 10);
 
-      expect(result).toHaveLength(1);
+      expect(result.data).toHaveLength(1);
+      expect(result.meta.page).toBe(1);
+      expect(result.meta.limit).toBe(10);
+      expect(result.meta.total).toBe(1);
+      expect(result.meta.totalPages).toBe(1);
       expect(prisma.appointment.findMany).toHaveBeenCalled();
+      expect(prisma.appointment.count).toHaveBeenCalled();
     });
   });
 
