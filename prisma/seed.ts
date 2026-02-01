@@ -2,8 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
@@ -193,9 +194,17 @@ function generatePhone(): string {
   return `+58${getRandomElement(areaCode)}${number}`;
 }
 
+function normalizeForEmail(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, '');
+}
+
 function generateEmail(name: string, lastName: string, index: number): string {
-  const cleanName = name.toLowerCase().replace(/\s+/g, '');
-  const cleanLastName = lastName.toLowerCase().replace(/\s+/g, '');
+  const cleanName = normalizeForEmail(name);
+  const cleanLastName = normalizeForEmail(lastName);
   return `${cleanName}.${cleanLastName}${index}@example.com`;
 }
 
@@ -245,6 +254,41 @@ async function main() {
     ),
   );
   console.log(`✅ ${createdSpecialties.length} especialidades creadas`);
+
+  const testPhone = process.env.TEST_PHONE ?? '+59160365521';
+  const testPassword = process.env.TEST_PASSWORD ?? 'password123';
+  const testPasswordHash = await bcrypt.hash(testPassword, 10);
+  const testUserEmail = 'test-e2e@clinix.local';
+
+  console.log('🔐 Creando usuario de prueba E2E...');
+  const testUser = await prisma.user.upsert({
+    where: { email: testUserEmail },
+    create: {
+      email: testUserEmail,
+      name: 'Usuario',
+      lastName: 'Prueba E2E',
+      phone: testPhone,
+      password: testPasswordHash,
+    },
+    update: {
+      phone: testPhone,
+      password: testPasswordHash,
+    },
+  });
+
+  const existingTestDoctor = await prisma.doctor.findFirst({
+    where: { userId: testUser.id },
+  });
+  if (!existingTestDoctor) {
+    await prisma.doctor.create({
+      data: {
+        userId: testUser.id,
+        specialtyId: createdSpecialties[0].id,
+        licenseNumber: 'LIC-E2E-TEST',
+      },
+    });
+  }
+  console.log('✅ Usuario de prueba E2E listo');
 
   console.log('👨‍⚕️ Creando doctores...');
   const doctors: Array<{

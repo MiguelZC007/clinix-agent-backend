@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
 import { OpenaiService } from '../openai/openai.service';
 import { TwilioService } from './twilio.service';
@@ -12,6 +12,7 @@ export class ReplyMessageHandler {
 
   constructor(
     private readonly openaiService: OpenaiService,
+    @Inject(forwardRef(() => TwilioService))
     private readonly twilioService: TwilioService,
   ) {}
 
