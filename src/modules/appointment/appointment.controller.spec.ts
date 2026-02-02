@@ -32,6 +32,7 @@ describe('AppointmentController', () => {
         limit: number,
         startDate?: string,
         endDate?: string,
+        status?: StatusAppointment,
       ) => Promise<PaginationResponseDto<AppointmentResponseDto>>
     >;
     findOne: jest.MockedFunction<
@@ -151,6 +152,7 @@ describe('AppointmentController', () => {
         'doctor-uuid',
         1,
         10,
+        undefined,
         undefined,
         undefined,
       );

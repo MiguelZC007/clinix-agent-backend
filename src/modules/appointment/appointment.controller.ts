@@ -93,6 +93,7 @@ export class AppointmentController {
       query.limit ?? 10,
       query.startDate,
       query.endDate,
+      query.status,
     );
   }
 

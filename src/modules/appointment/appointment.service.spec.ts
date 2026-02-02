@@ -161,6 +161,33 @@ describe('AppointmentService', () => {
       expect(prisma.appointment.findMany).toHaveBeenCalled();
       expect(prisma.appointment.count).toHaveBeenCalled();
     });
+
+    it('debe filtrar por status y rango startDate/endDate cuando se pasan', async () => {
+      prisma.appointment.findMany.mockResolvedValue([mockAppointment]);
+      prisma.appointment.count.mockResolvedValue(1);
+
+      await service.findAll(
+        doctorId,
+        1,
+        10,
+        '2026-02-01T00:00:00.000Z',
+        '2026-02-28T23:59:59.999Z',
+        StatusAppointment.CONFIRMED,
+      );
+
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            doctorId,
+            status: StatusAppointment.CONFIRMED,
+            startAppointment: {
+              gte: new Date('2026-02-01T00:00:00.000Z'),
+              lte: new Date('2026-02-28T23:59:59.999Z'),
+            },
+          }),
+        }),
+      );
+    });
   });
 
   describe('findOne', () => {

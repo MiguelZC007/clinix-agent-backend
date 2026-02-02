@@ -108,12 +108,14 @@ export class AppointmentService {
     limit: number,
     startDate?: string,
     endDate?: string,
+    status?: StatusAppointment,
   ): Promise<PaginationResponseDto<AppointmentResponseDto>> {
     const skip = (page - 1) * limit;
 
     const where: {
       doctorId: string;
       startAppointment?: { gte?: Date; lte?: Date };
+      status?: StatusAppointment;
     } = { doctorId };
 
     if (startDate || endDate) {
@@ -122,10 +124,12 @@ export class AppointmentService {
         where.startAppointment.gte = new Date(startDate);
       }
       if (endDate) {
-        const endDateTime = new Date(endDate);
-        endDateTime.setHours(23, 59, 59, 999);
-        where.startAppointment.lte = endDateTime;
+        where.startAppointment.lte = new Date(endDate);
       }
+    }
+
+    if (status !== undefined && status !== null) {
+      where.status = status;
     }
 
     const [appointments, total] = await Promise.all([

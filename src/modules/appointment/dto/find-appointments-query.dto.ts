@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Min, IsDateString } from 'class-validator';
+import { IsOptional, IsDateString, IsEnum } from 'class-validator';
 import { PaginationQueryDto } from 'src/core/dto/pagination-query.dto';
+import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 
 export class FindAppointmentsQueryDto extends PaginationQueryDto {
   @ApiProperty({
@@ -21,4 +21,13 @@ export class FindAppointmentsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiProperty({
+    description: 'Filtrar por estado de la cita',
+    enum: StatusAppointment,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(StatusAppointment)
+  status?: StatusAppointment;
 }
