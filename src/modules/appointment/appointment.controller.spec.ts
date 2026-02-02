@@ -14,13 +14,20 @@ describe('AppointmentController', () => {
   let controller: AppointmentController;
   let patientAppointmentsController: PatientAppointmentsController;
 
+  const mockUser = { doctor: { id: 'doctor-uuid' } };
+
   type MockAppointmentService = {
     create: jest.MockedFunction<
-      (this: void, dto: CreateAppointmentDto) => Promise<AppointmentResponseDto>
+      (
+        this: void,
+        dto: CreateAppointmentDto,
+        doctorId: string,
+      ) => Promise<AppointmentResponseDto>
     >;
     findAll: jest.MockedFunction<
       (
         this: void,
+        doctorId: string,
         page: number,
         limit: number,
         startDate?: string,
@@ -28,20 +35,33 @@ describe('AppointmentController', () => {
       ) => Promise<PaginationResponseDto<AppointmentResponseDto>>
     >;
     findOne: jest.MockedFunction<
-      (this: void, id: string) => Promise<AppointmentResponseDto>
+      (
+        this: void,
+        id: string,
+        doctorId: string,
+      ) => Promise<AppointmentResponseDto>
     >;
     update: jest.MockedFunction<
       (
         this: void,
         id: string,
         dto: UpdateAppointmentDto,
+        doctorId: string,
       ) => Promise<AppointmentResponseDto>
     >;
     cancel: jest.MockedFunction<
-      (this: void, id: string) => Promise<AppointmentResponseDto>
+      (
+        this: void,
+        id: string,
+        doctorId: string,
+      ) => Promise<AppointmentResponseDto>
     >;
     findByPatient: jest.MockedFunction<
-      (this: void, patientId: string) => Promise<AppointmentResponseDto[]>
+      (
+        this: void,
+        patientId: string,
+        doctorId: string,
+      ) => Promise<AppointmentResponseDto[]>
     >;
   };
 
@@ -98,10 +118,9 @@ describe('AppointmentController', () => {
   });
 
   describe('create', () => {
-    it('debe llamar a appointmentService.create con el DTO', async () => {
+    it('debe llamar a appointmentService.create con el DTO y doctorId del usuario', async () => {
       const createDto: CreateAppointmentDto = {
         patientId: 'patient-uuid',
-        doctorId: 'doctor-uuid',
         specialtyId: 'specialty-uuid',
         startAppointment: '2026-01-20T09:00:00.000Z',
         endAppointment: '2026-01-20T09:30:00.000Z',
@@ -110,15 +129,15 @@ describe('AppointmentController', () => {
 
       service.create.mockResolvedValue(mockAppointmentResponse);
 
-      const result = await controller.create(createDto);
+      const result = await controller.create(createDto, mockUser);
 
-      expect(service.create).toHaveBeenCalledWith(createDto);
+      expect(service.create).toHaveBeenCalledWith(createDto, 'doctor-uuid');
       expect(result).toEqual(mockAppointmentResponse);
     });
   });
 
   describe('findAll', () => {
-    it('debe llamar a appointmentService.findAll con query', async () => {
+    it('debe llamar a appointmentService.findAll con doctorId y query', async () => {
       const paginatedResponse: PaginationResponseDto<AppointmentResponseDto> = {
         data: [mockAppointmentResponse],
         meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
@@ -126,27 +145,36 @@ describe('AppointmentController', () => {
       service.findAll.mockResolvedValue(paginatedResponse);
 
       const query = { page: 1, limit: 10 };
-      const result = await controller.findAll(query);
+      const result = await controller.findAll(query, mockUser);
 
-      expect(service.findAll).toHaveBeenCalledWith(1, 10, undefined, undefined);
+      expect(service.findAll).toHaveBeenCalledWith(
+        'doctor-uuid',
+        1,
+        10,
+        undefined,
+        undefined,
+      );
       expect(result.data).toHaveLength(1);
       expect(result.meta.page).toBe(1);
     });
   });
 
   describe('findOne', () => {
-    it('debe llamar a appointmentService.findOne con el ID', async () => {
+    it('debe llamar a appointmentService.findOne con el ID y doctorId', async () => {
       service.findOne.mockResolvedValue(mockAppointmentResponse);
 
-      const result = await controller.findOne('appointment-uuid');
+      const result = await controller.findOne('appointment-uuid', mockUser);
 
-      expect(service.findOne).toHaveBeenCalledWith('appointment-uuid');
+      expect(service.findOne).toHaveBeenCalledWith(
+        'appointment-uuid',
+        'doctor-uuid',
+      );
       expect(result).toEqual(mockAppointmentResponse);
     });
   });
 
   describe('update', () => {
-    it('debe llamar a appointmentService.update con ID y DTO', async () => {
+    it('debe llamar a appointmentService.update con ID, DTO y doctorId', async () => {
       const updateDto: UpdateAppointmentDto = {
         status: StatusAppointment.CONFIRMED,
         reason: 'Motivo actualizado',
@@ -157,38 +185,52 @@ describe('AppointmentController', () => {
         reason: 'Motivo actualizado',
       });
 
-      const result = await controller.update('appointment-uuid', updateDto);
+      const result = await controller.update(
+        'appointment-uuid',
+        updateDto,
+        mockUser,
+      );
 
       expect(service.update).toHaveBeenCalledWith(
         'appointment-uuid',
         updateDto,
+        'doctor-uuid',
       );
       expect(result.status).toBe(StatusAppointment.CONFIRMED);
     });
   });
 
   describe('cancel', () => {
-    it('debe llamar a appointmentService.cancel con el ID', async () => {
+    it('debe llamar a appointmentService.cancel con el ID y doctorId', async () => {
       service.cancel.mockResolvedValue({
         ...mockAppointmentResponse,
         status: StatusAppointment.CANCELLED,
       });
 
-      const result = await controller.cancel('appointment-uuid');
+      const result = await controller.cancel('appointment-uuid', mockUser);
 
-      expect(service.cancel).toHaveBeenCalledWith('appointment-uuid');
+      expect(service.cancel).toHaveBeenCalledWith(
+        'appointment-uuid',
+        'doctor-uuid',
+      );
       expect(result.status).toBe(StatusAppointment.CANCELLED);
     });
   });
 
   describe('PatientAppointmentsController.findByPatient', () => {
-    it('debe llamar a appointmentService.findByPatient con el patientId', async () => {
+    it('debe llamar a appointmentService.findByPatient con patientId y doctorId', async () => {
       service.findByPatient.mockResolvedValue([mockAppointmentResponse]);
 
       const result =
-        await patientAppointmentsController.findByPatient('patient-uuid');
+        await patientAppointmentsController.findByPatient(
+          'patient-uuid',
+          mockUser,
+        );
 
-      expect(service.findByPatient).toHaveBeenCalledWith('patient-uuid');
+      expect(service.findByPatient).toHaveBeenCalledWith(
+        'patient-uuid',
+        'doctor-uuid',
+      );
       expect(result).toHaveLength(1);
     });
   });

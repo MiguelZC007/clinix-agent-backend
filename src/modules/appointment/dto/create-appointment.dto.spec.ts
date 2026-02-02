@@ -5,7 +5,6 @@ import { CreateAppointmentDto } from './create-appointment.dto';
 describe('CreateAppointmentDto', () => {
   const validData = {
     patientId: '550e8400-e29b-41d4-a716-446655440000',
-    doctorId: '550e8400-e29b-41d4-a716-446655440001',
     specialtyId: '550e8400-e29b-41d4-a716-446655440002',
     startAppointment: '2026-01-20T09:00:00.000Z',
     endAppointment: '2026-01-20T09:30:00.000Z',
@@ -35,26 +34,6 @@ describe('CreateAppointmentDto', () => {
       });
       const errors = await validate(dto);
       expect(errors.some((e) => e.property === 'patientId')).toBe(true);
-    });
-  });
-
-  describe('doctorId', () => {
-    it('debe fallar si doctorId está vacío', async () => {
-      const dto = plainToInstance(CreateAppointmentDto, {
-        ...validData,
-        doctorId: '',
-      });
-      const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'doctorId')).toBe(true);
-    });
-
-    it('debe fallar si doctorId no es UUID', async () => {
-      const dto = plainToInstance(CreateAppointmentDto, {
-        ...validData,
-        doctorId: '12345',
-      });
-      const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'doctorId')).toBe(true);
     });
   });
 

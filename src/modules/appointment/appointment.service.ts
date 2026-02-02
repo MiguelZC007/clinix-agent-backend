@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -21,6 +22,7 @@ export class AppointmentService {
 
   async create(
     createAppointmentDto: CreateAppointmentDto,
+    doctorId: string,
   ): Promise<AppointmentResponseDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: createAppointmentDto.patientId },
@@ -31,7 +33,7 @@ export class AppointmentService {
     }
 
     const doctor = await this.prisma.doctor.findUnique({
-      where: { id: createAppointmentDto.doctorId },
+      where: { id: doctorId },
       include: { user: true, specialty: true },
     });
 
@@ -56,7 +58,7 @@ export class AppointmentService {
 
     const conflictingAppointment = await this.prisma.appointment.findFirst({
       where: {
-        doctorId: createAppointmentDto.doctorId,
+        doctorId,
         status: {
           in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
         },
@@ -84,7 +86,7 @@ export class AppointmentService {
     const appointment = await this.prisma.appointment.create({
       data: {
         patientId: createAppointmentDto.patientId,
-        doctorId: createAppointmentDto.doctorId,
+        doctorId,
         specialtyId: createAppointmentDto.specialtyId,
         reason: createAppointmentDto.reason,
         startAppointment: startDate,
@@ -101,6 +103,7 @@ export class AppointmentService {
   }
 
   async findAll(
+    doctorId: string,
     page: number,
     limit: number,
     startDate?: string,
@@ -109,8 +112,9 @@ export class AppointmentService {
     const skip = (page - 1) * limit;
 
     const where: {
+      doctorId: string;
       startAppointment?: { gte?: Date; lte?: Date };
-    } = {};
+    } = { doctorId };
 
     if (startDate || endDate) {
       where.startAppointment = {};
@@ -153,7 +157,7 @@ export class AppointmentService {
     };
   }
 
-  async findOne(id: string): Promise<AppointmentResponseDto> {
+  async findOne(id: string, doctorId: string): Promise<AppointmentResponseDto> {
     const appointment = await this.prisma.appointment.findUnique({
       where: { id },
       include: {
@@ -166,12 +170,17 @@ export class AppointmentService {
       throw new NotFoundException('appointment-not-found');
     }
 
+    if (appointment.doctorId !== doctorId) {
+      throw new ForbiddenException('appointment-not-owned-by-doctor');
+    }
+
     return this.mapToAppointmentResponse(appointment);
   }
 
   async update(
     id: string,
     updateAppointmentDto: UpdateAppointmentDto,
+    doctorId: string,
   ): Promise<AppointmentResponseDto> {
     const existingAppointment = await this.prisma.appointment.findUnique({
       where: { id },
@@ -179,6 +188,10 @@ export class AppointmentService {
 
     if (!existingAppointment) {
       throw new NotFoundException('appointment-not-found');
+    }
+
+    if (existingAppointment.doctorId !== doctorId) {
+      throw new ForbiddenException('appointment-not-owned-by-doctor');
     }
 
     if (
@@ -246,13 +259,17 @@ export class AppointmentService {
     return this.mapToAppointmentResponse(appointment);
   }
 
-  async cancel(id: string): Promise<AppointmentResponseDto> {
+  async cancel(id: string, doctorId: string): Promise<AppointmentResponseDto> {
     const existingAppointment = await this.prisma.appointment.findUnique({
       where: { id },
     });
 
     if (!existingAppointment) {
       throw new NotFoundException('appointment-not-found');
+    }
+
+    if (existingAppointment.doctorId !== doctorId) {
+      throw new ForbiddenException('appointment-not-owned-by-doctor');
     }
 
     const appointmentStatus = existingAppointment.status as StatusAppointment;
@@ -277,7 +294,10 @@ export class AppointmentService {
     return this.mapToAppointmentResponse(appointment);
   }
 
-  async findByPatient(patientId: string): Promise<AppointmentResponseDto[]> {
+  async findByPatient(
+    patientId: string,
+    doctorId: string,
+  ): Promise<AppointmentResponseDto[]> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
     });
@@ -287,7 +307,7 @@ export class AppointmentService {
     }
 
     const appointments = await this.prisma.appointment.findMany({
-      where: { patientId },
+      where: { patientId, doctorId },
       include: {
         patient: { include: { user: true } },
         doctor: { include: { user: true, specialty: true } },

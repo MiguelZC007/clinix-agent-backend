@@ -32,6 +32,7 @@ describe('OpenaiService', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
+    specialty: { findMany: jest.Mock; findUnique: jest.Mock };
     appointment: {
       create: jest.Mock;
       findMany: jest.Mock;
@@ -72,6 +73,7 @@ describe('OpenaiService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      specialty: { findMany: jest.fn(), findUnique: jest.fn() },
       appointment: {
         create: jest.fn(),
         findMany: jest.fn(),
@@ -387,6 +389,8 @@ describe('OpenaiService', () => {
       expect(createArg?.data?.name).toBe('Carlos');
       expect(createArg?.data?.lastName).toBe('López');
       expect(createArg?.data?.phone).toBe('+584247654321');
+      const patientCreate = (createArg?.data as { patient?: { create?: { registeredByDoctorId?: string } } })?.patient?.create;
+      expect(patientCreate?.registeredByDoctorId).toBe('doctor-uuid');
       expect(result).toContain('Carlos López');
     });
 
@@ -509,6 +513,346 @@ describe('OpenaiService', () => {
         data: { status: 'cancelled' },
       });
       expect(result).toContain('cancelada');
+    });
+
+    it('debe ejecutar tool call list_specialties', async () => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      const mockSpecialties = [
+        { id: 'spec-1', name: 'Cardiología' },
+        { id: 'spec-2', name: 'Pediatría' },
+      ];
+      mockPrisma.specialty.findMany.mockResolvedValue(mockSpecialties);
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'list_specialties',
+                      arguments: JSON.stringify({}),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Las especialidades son: Cardiología, Pediatría.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        '¿Cuáles son las especialidades?',
+      );
+
+      expect(mockPrisma.specialty.findMany).toHaveBeenCalledWith({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+    });
+
+    it('debe ejecutar tool call search_patients con query opcional', async () => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      const mockPatients = [
+        {
+          id: 'patient-1',
+          user: { name: 'Juan', lastName: 'Pérez' },
+        },
+      ];
+      mockPrisma.patient.findMany.mockResolvedValue(mockPatients);
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'search_patients',
+                      arguments: JSON.stringify({ query: 'Juan' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Encontré al paciente Juan Pérez.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Busca pacientes que se llamen Juan',
+      );
+
+      expect(mockPrisma.patient.findMany).toHaveBeenCalled();
+      const findManyCall = mockPrisma.patient.findMany.mock
+        .calls[0] as Array<unknown>;
+      const whereArg = (findManyCall[0] as { where?: unknown })?.where as {
+        AND?: Array<{ OR?: unknown[] }>;
+      };
+      expect(whereArg).toBeDefined();
+      expect(whereArg.AND).toBeDefined();
+      expect(Array.isArray(whereArg.AND)).toBe(true);
+      const doctorOr = whereArg.AND?.[0] as { OR?: Array<Record<string, unknown>> };
+      expect(doctorOr?.OR).toBeDefined();
+      expect(doctorOr?.OR).toHaveLength(2);
+      const hasAppointments = doctorOr?.OR?.some((o) => 'appointments' in o);
+      const hasRegisteredBy = doctorOr?.OR?.some((o) => 'registeredByDoctorId' in o);
+      expect(hasAppointments).toBe(true);
+      expect(hasRegisteredBy).toBe(true);
+    });
+
+    it('create_appointment con paciente inexistente no llama a appointment.create y devuelve error al LLM', async () => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      mockPrisma.patient.findUnique.mockResolvedValue(null);
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_appointment',
+                      arguments: JSON.stringify({
+                        patientId: 'patient-inexistente',
+                        specialtyId: 'spec-1',
+                        startAppointment: '2026-02-02T15:00:00',
+                        endAppointment: '2026-02-02T15:15:00',
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content:
+                  'No pude crear la cita: el paciente no fue encontrado. Verifique que seleccionó un paciente de la lista.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Crea una cita para el paciente patient-inexistente',
+      );
+
+      expect(mockPrisma.appointment.create).not.toHaveBeenCalled();
+      expect(mockChatCompletionsCreate).toHaveBeenCalledTimes(2);
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages = secondCall?.[0]?.messages as Array<{ role?: string; content?: string }>;
+      const toolMessage = messages?.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      expect(content).toContain('"success":false');
+      expect(content).toContain('patient-not-found');
+      expect(content).toContain('El paciente no fue encontrado');
+    });
+
+    it('create_appointment con especialidad inexistente no llama a appointment.create', async () => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      mockPrisma.patient.findUnique.mockResolvedValue({
+        id: 'patient-uuid',
+        userId: 'user-uuid',
+      });
+      mockPrisma.appointment.findFirst.mockResolvedValue({
+        id: 'apt-1',
+        patientId: 'patient-uuid',
+        doctorId: 'doctor-uuid',
+      });
+      mockPrisma.specialty.findUnique.mockResolvedValue(null);
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_appointment',
+                      arguments: JSON.stringify({
+                        patientId: 'patient-uuid',
+                        specialtyId: 'spec-inexistente',
+                        startAppointment: '2026-02-02T15:00:00',
+                        endAppointment: '2026-02-02T15:15:00',
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content:
+                  'No pude crear la cita: la especialidad no fue encontrada.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Crea una cita en especialidad inexistente',
+      );
+
+      expect(mockPrisma.appointment.create).not.toHaveBeenCalled();
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages = secondCall?.[0]?.messages as Array<{ role?: string; content?: string }>;
+      const toolMessage = messages?.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      expect(content).toContain('"success":false');
+      expect(content).toContain('specialty-not-found');
+    });
+
+    it('create_appointment con paciente registrado por el mismo doctor crea la cita sin tener citas previas', async () => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      mockPrisma.patient.findUnique.mockResolvedValue({
+        id: 'patient-uuid',
+        registeredByDoctorId: 'doctor-uuid',
+      });
+      mockPrisma.specialty.findUnique.mockResolvedValue({
+        id: 'spec-uuid',
+        name: 'Cardiología',
+      });
+      mockPrisma.appointment.create.mockResolvedValue({
+        id: 'appointment-uuid',
+        patientId: 'patient-uuid',
+        doctorId: 'doctor-uuid',
+        specialtyId: 'spec-uuid',
+        startAppointment: new Date('2026-02-02T15:00:00'),
+        endAppointment: new Date('2026-02-02T15:15:00'),
+        status: 'pending',
+      });
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_appointment',
+                      arguments: JSON.stringify({
+                        patientId: 'patient-uuid',
+                        specialtyId: 'spec-uuid',
+                        startAppointment: '2026-02-02T15:00:00',
+                        endAppointment: '2026-02-02T15:15:00',
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Cita creada correctamente para el paciente.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Crea una cita para el paciente patient-uuid en Cardiología',
+      );
+
+      expect(mockPrisma.appointment.create).toHaveBeenCalled();
+      expect(mockPrisma.appointment.findFirst).not.toHaveBeenCalled();
     });
   });
 

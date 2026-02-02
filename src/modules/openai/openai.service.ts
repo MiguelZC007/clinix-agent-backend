@@ -3,8 +3,11 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
+  HttpException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import OpenAI from 'openai';
 import { ConversationService } from './conversation.service';
 import { AppointmentService } from '../appointment/appointment.service';
@@ -203,22 +206,50 @@ const patientTools: ChatCompletionTool[] = [
   },
 ];
 
+const buscadorTools: ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_specialties',
+      description:
+        'Lista las especialidades médicas del sistema. Devuelve id y nombre. Usa el id cuando el médico elija una especialidad por nombre; NUNCA muestres el id al médico.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_patients',
+      description:
+        'Busca pacientes del doctor por nombre o apellido. Devuelve id, nombre y apellido. Usa el id cuando el médico elija un paciente por nombre; NUNCA muestres el id al médico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'Texto opcional para filtrar por nombre o apellido del paciente. Si no se envía, lista todos los pacientes del doctor.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+];
+
 const appointmentTools: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
       name: 'create_appointment',
-      description: 'Create a new medical appointment',
+      description:
+        'Create a new medical appointment for the authenticated doctor. Never ask for or accept doctor ID; the appointment is always for the doctor in the conversation.',
       parameters: {
         type: 'object',
         properties: {
           patientId: {
             type: 'string',
             description: 'The unique identifier (UUID) of the patient',
-          },
-          doctorId: {
-            type: 'string',
-            description: 'The unique identifier (UUID) of the doctor',
           },
           specialtyId: {
             type: 'string',
@@ -227,16 +258,17 @@ const appointmentTools: ChatCompletionTool[] = [
           },
           startAppointment: {
             type: 'string',
-            description: 'Start date and time in ISO 8601 format',
+            description:
+              'Start date and time in ISO 8601 format (e.g. 2023-10-11T10:00:00)',
           },
           endAppointment: {
             type: 'string',
-            description: 'End date and time in ISO 8601 format',
+            description:
+              'End date and time in ISO 8601 format (e.g. 2023-10-11T11:00:00)',
           },
         },
         required: [
           'patientId',
-          'doctorId',
           'specialtyId',
           'startAppointment',
           'endAppointment',
@@ -564,6 +596,7 @@ const clinicHistoryTools: ChatCompletionTool[] = [
 
 const openaiTools: ChatCompletionTool[] = [
   ...patientTools,
+  ...buscadorTools,
   ...appointmentTools,
   ...clinicHistoryTools,
 ];
@@ -576,7 +609,10 @@ export interface DoctorContext {
 @Injectable()
 export class OpenaiService {
   private readonly logger = new Logger(OpenaiService.name);
-  private readonly systemPrompt: string = `Eres el asistente del médico en un sistema de gestión de historias clínicas. Tu único propósito es ayudar al médico a ejecutar las siguientes funciones:
+  private readonly systemPrompt: string = `Eres el asistente del médico en un sistema de gestión de historias clínicas. Tu único propósito es ayudar al médico a ejecutar las siguientes funciones.
+
+REGLAS PRINCIPALES:
+- Estás conversando con médicos. Tus mensajes deben ser claros, directos y apropiados para un profesional de la salud: evita rodeos, usa terminología adecuada y estructura la información de forma que el médico pueda revisar y decidir con rapidez (por ejemplo, confirmaciones con paciente, especialidad, fechas y hora en un solo mensaje).
 
 FUNCIONES DISPONIBLES:
 - Pacientes: registrar, consultar, actualizar, eliminar pacientes y gestionar sus antecedentes médicos (alergias, medicamentos, historial médico, historial familiar).
@@ -596,7 +632,12 @@ REGLAS ESTRICTAS:
    - Medicamentos actuales
 4. Confirma con el médico antes de ejecutar cualquier acción que modifique datos.
 5. Responde siempre en español.
-6. Sé conciso y profesional en tus respuestas.`;
+6. Sé conciso y profesional en tus respuestas.
+7. Para crear una cita médica necesitas: paciente, especialidad, fecha/hora inicio y fin (ISO 8601). NUNCA solicites ni uses el ID del doctor: la cita siempre es para el médico que está en la conversación.
+8. NUNCA muestres, confirmes ni escribas UUIDs ni identificadores de base de datos (ID de especialidad, paciente, cita, etc.) en ningún mensaje al médico. Ni siquiera al "confirmar" una elección: confirma solo por nombre (ej. "He confirmado la especialidad Cardiología" o "Paciente Juan Pérez confirmado"), nunca incluyas el ID.
+9. Para especialidad o paciente, usa primero list_specialties o search_patients. Presenta al médico solo nombres (ej. "Especialidades: 1. Cardiología, 2. Pediatría" o "Pacientes: Juan Pérez, María González").
+10. Cuando el médico elija por nombre o por número de opción, usa el id del resultado del tool en las llamadas que lo requieran (create_appointment con specialtyId y patientId, get_patient con patientId, etc.).
+11. Para crear una cita, si no conoces la especialidad o el paciente, llama a list_specialties y/o search_patients, presenta las opciones por nombre, y cuando el médico elija usa los ids correspondientes en create_appointment.`;
 
   private readonly openai: OpenAI;
 
@@ -743,16 +784,27 @@ REGLAS ESTRICTAS:
         toolCall.function.arguments,
       );
 
-      const result = await this.executeToolFunction(
-        doctorId,
-        functionName,
-        functionArgs,
-      );
+      let content: string;
+      try {
+        const result = await this.executeToolFunction(
+          doctorId,
+          functionName,
+          functionArgs,
+        );
+        content = JSON.stringify(result);
+      } catch (exception) {
+        const { error, message } = this.mapToolErrorToMessage(exception);
+        content = JSON.stringify({
+          success: false,
+          error,
+          message,
+        });
+      }
 
       toolResults.push({
         tool_call_id: toolCall.id,
         role: 'tool',
-        content: JSON.stringify(result),
+        content,
       });
     }
 
@@ -792,6 +844,48 @@ REGLAS ESTRICTAS:
     }
   }
 
+  private mapToolErrorToMessage(exception: unknown): {
+    error: string;
+    message: string;
+  } {
+    const codeMap: Record<string, string> = {
+      [ErrorCode.PATIENT_NOT_FOUND]:
+        'El paciente no fue encontrado. Verifique que seleccionó un paciente de la lista.',
+      [ErrorCode.SPECIALTY_NOT_FOUND]:
+        'La especialidad no fue encontrada. Verifique que seleccionó una especialidad de la lista.',
+      'patient-not-owned-by-doctor':
+        'No tiene acceso a ese paciente. Seleccione un paciente de la lista que le mostré.',
+      [ErrorCode.APPOINTMENT_NOT_FOUND]: 'La cita no fue encontrada.',
+      [ErrorCode.APPOINTMENT_CONFLICT]:
+        'Ya existe una cita en ese horario. Elija otra fecha u hora.',
+      [ErrorCode.INVALID_DATE_RANGE]:
+        'La hora de fin debe ser posterior a la hora de inicio.',
+      [ErrorCode.APPOINTMENT_ALREADY_CANCELLED]:
+        'La cita ya está cancelada.',
+      'appointment-cannot-cancel-completed':
+        'No se puede cancelar una cita ya completada.',
+      [ErrorCode.CONFLICT]: 'Conflicto con los datos. Intente de nuevo.',
+      [ErrorCode.NOT_FOUND]: 'Recurso no encontrado.',
+      [ErrorCode.BAD_REQUEST]: 'Datos inválidos. Verifique e intente de nuevo.',
+    };
+
+    if (exception instanceof HttpException) {
+      const response = exception.getResponse();
+      const code =
+        typeof response === 'object' && response !== null && 'message' in response
+          ? String((response as { message: unknown }).message)
+          : String(response);
+      const message = codeMap[code] ?? codeMap[ErrorCode.BAD_REQUEST];
+      return { error: code, message };
+    }
+
+    return {
+      error: ErrorCode.UNKNOWN,
+      message:
+        'Ocurrió un error al procesar la solicitud. Intente de nuevo.',
+    };
+  }
+
   private formatAppointmentsForWhatsApp(
     appointments: AppointmentResponseDto[],
   ): string {
@@ -814,6 +908,16 @@ REGLAS ESTRICTAS:
     patientId: string,
     doctorId: string,
   ): Promise<void> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, registeredByDoctorId: true },
+    });
+    if (!patient) {
+      throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+    }
+    if (patient.registeredByDoctorId === doctorId) {
+      return;
+    }
     const hasAppointment = await this.prisma.appointment.findFirst({
       where: { patientId, doctorId },
     });
@@ -838,6 +942,7 @@ REGLAS ESTRICTAS:
             password: args.password as string | undefined,
             patient: {
               create: {
+                registeredByDoctorId: doctorId,
                 gender: args.gender as string | undefined,
                 birthDate: args.birthDate
                   ? new Date(args.birthDate as string)
@@ -852,10 +957,66 @@ REGLAS ESTRICTAS:
           include: { patient: true },
         });
 
+      case 'list_specialties':
+        return this.prisma.specialty.findMany({
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        });
+
+      case 'search_patients': {
+        const query = args.query as string | undefined;
+        const searchTerm =
+          typeof query === 'string' && query.trim() !== '' ? query.trim() : null;
+        const doctorFilter = {
+          OR: [
+            { appointments: { some: { doctorId } } },
+            { registeredByDoctorId: doctorId },
+          ],
+        };
+        const nameFilter = searchTerm
+          ? {
+            OR: [
+              {
+                user: {
+                  name: {
+                    contains: searchTerm,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+              {
+                user: {
+                  lastName: {
+                    contains: searchTerm,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
+            ],
+          }
+          : undefined;
+        const patients = await this.prisma.patient.findMany({
+          where: {
+            AND: [doctorFilter, ...(nameFilter ? [nameFilter] : [])],
+          },
+          include: {
+            user: { select: { name: true, lastName: true } },
+          },
+        });
+        return patients.map((p) => ({
+          id: p.id,
+          name: p.user.name,
+          lastName: p.user.lastName,
+        }));
+      }
+
       case 'get_all_patients':
         return this.prisma.patient.findMany({
           where: {
-            appointments: { some: { doctorId } },
+            OR: [
+              { appointments: { some: { doctorId } } },
+              { registeredByDoctorId: doctorId },
+            ],
           },
           include: {
             user: {
@@ -936,18 +1097,43 @@ REGLAS ESTRICTAS:
         });
       }
 
-      case 'create_appointment':
+      case 'create_appointment': {
+        const patientId = args.patientId as string;
+        const specialtyId = args.specialtyId as string;
+        const startAppointment = new Date(args.startAppointment as string);
+        const endAppointment = new Date(args.endAppointment as string);
+
+        const patient = await this.prisma.patient.findUnique({
+          where: { id: patientId },
+        });
+        if (!patient) {
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        await this.ensurePatientOwnership(patientId, doctorId);
+
+        const specialty = await this.prisma.specialty.findUnique({
+          where: { id: specialtyId },
+        });
+        if (!specialty) {
+          throw new NotFoundException(ErrorCode.SPECIALTY_NOT_FOUND);
+        }
+
+        if (startAppointment >= endAppointment) {
+          throw new BadRequestException(ErrorCode.INVALID_DATE_RANGE);
+        }
+
         return this.prisma.appointment.create({
           data: {
-            patientId: args.patientId as string,
+            patientId,
             doctorId,
-            specialtyId: args.specialtyId as string,
+            specialtyId,
             reason: args.reason as string | undefined,
-            startAppointment: new Date(args.startAppointment as string),
-            endAppointment: new Date(args.endAppointment as string),
+            startAppointment,
+            endAppointment,
             status: 'pending',
           },
         });
+      }
 
       case 'get_all_appointments':
         return this.prisma.appointment.findMany({

@@ -18,14 +18,6 @@ export class CreateAppointmentDto {
   patientId: string;
 
   @ApiProperty({
-    description: 'ID del doctor',
-    example: '550e8400-e29b-41d4-a716-446655440001',
-  })
-  @IsNotEmpty({ message: 'El ID del doctor es requerido' })
-  @IsUUID('4', { message: 'El ID del doctor debe ser un UUID válido' })
-  doctorId: string;
-
-  @ApiProperty({
     description: 'ID de la especialidad',
     example: '550e8400-e29b-41d4-a716-446655440002',
   })
