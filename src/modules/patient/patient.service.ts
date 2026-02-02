@@ -73,12 +73,15 @@ export class PatientService {
 
   async findAll(
     query: PatientListQueryDto,
+    doctorId: string,
   ): Promise<PatientListResultDto> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
     const search = query.search?.trim();
 
-    const where = search
+    const patientIds = await this.getAssociatedPatientIds(doctorId);
+    const idFilter = { id: { in: Array.from(patientIds) } };
+    const searchFilter = search
       ? {
         user: {
           OR: [
@@ -88,7 +91,11 @@ export class PatientService {
           ],
         },
       }
-      : {};
+      : null;
+    const where =
+      searchFilter === null
+        ? idFilter
+        : { AND: [idFilter, searchFilter] };
 
     const [patients, total] = await this.prisma.$transaction([
       this.prisma.patient.findMany({
@@ -109,6 +116,29 @@ export class PatientService {
       total,
       totalPages: Math.ceil(total / pageSize),
     };
+  }
+
+  private async getAssociatedPatientIds(doctorId: string): Promise<Set<string>> {
+    const [appointmentPatientIds, historyPatientIds, registeredByDoctorPatientIds] =
+      await Promise.all([
+        this.prisma.appointment.findMany({
+          where: { doctorId },
+          select: { patientId: true },
+        }),
+        this.prisma.clinicHistory.findMany({
+          where: { doctorId },
+          select: { patientId: true },
+        }),
+        this.prisma.patient.findMany({
+          where: { registeredByDoctorId: doctorId },
+          select: { id: true },
+        }),
+      ]);
+    return new Set<string>([
+      ...appointmentPatientIds.map((a) => a.patientId),
+      ...historyPatientIds.map((h) => h.patientId),
+      ...registeredByDoctorPatientIds.map((p) => p.id),
+    ]);
   }
 
   async findOne(id: string): Promise<PatientResponseDto> {

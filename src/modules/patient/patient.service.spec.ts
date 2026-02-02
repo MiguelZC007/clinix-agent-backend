@@ -114,27 +114,60 @@ describe('PatientService', () => {
   });
 
   describe('findAll', () => {
-    it('debe retornar lista paginada de pacientes', async () => {
+    const doctorId = 'doctor-uuid';
+
+    it('debe retornar lista paginada de pacientes asociados al doctor', async () => {
+      prisma.appointment.findMany.mockResolvedValue([]);
+      prisma.clinicHistory.findMany.mockResolvedValue([]);
+      prisma.patient.findMany.mockResolvedValue([{ id: 'patient-uuid' }]);
       prisma.$transaction.mockResolvedValue([[mockPatient], 1]);
 
-      const result = await service.findAll({});
+      const result = await service.findAll({}, doctorId);
 
       expect(result.items).toHaveLength(1);
       expect(result.page).toBe(1);
       expect(result.pageSize).toBe(10);
       expect(result.total).toBe(1);
       expect(result.totalPages).toBe(1);
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith({
+        where: { doctorId },
+        select: { patientId: true },
+      });
+      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith({
+        where: { doctorId },
+        select: { patientId: true },
+      });
+      expect(prisma.patient.findMany).toHaveBeenCalled();
       expect(prisma.$transaction).toHaveBeenCalled();
     });
 
-    it('debe retornar lista vacía si no hay pacientes', async () => {
+    it('debe retornar lista vacía si el doctor no tiene pacientes asociados', async () => {
+      prisma.appointment.findMany.mockResolvedValue([]);
+      prisma.clinicHistory.findMany.mockResolvedValue([]);
+      prisma.patient.findMany.mockResolvedValue([]);
       prisma.$transaction.mockResolvedValue([[], 0]);
 
-      const result = await service.findAll({ page: 1, pageSize: 10 });
+      const result = await service.findAll({ page: 1, pageSize: 10 }, doctorId);
 
       expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
       expect(result.totalPages).toBe(0);
+    });
+
+    it('debe aplicar filtro de búsqueda junto al filtro por doctor', async () => {
+      prisma.appointment.findMany.mockResolvedValue([{ patientId: 'patient-uuid' }]);
+      prisma.clinicHistory.findMany.mockResolvedValue([]);
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockResolvedValue([[mockPatient], 1]);
+
+      const result = await service.findAll(
+        { page: 1, pageSize: 10, search: 'Juan' },
+        doctorId,
+      );
+
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
   });
 

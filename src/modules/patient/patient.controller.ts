@@ -87,8 +87,12 @@ export class PatientController {
       },
     } as SchemaObject,
   })
-  findAll(@Query() query: PatientListQueryDto): Promise<PatientListResultDto> {
-    return this.patientService.findAll(query);
+  findAll(
+    @Query() query: PatientListQueryDto,
+    @User() user: unknown,
+  ): Promise<PatientListResultDto> {
+    const doctorId = this.getDoctorId(user);
+    return this.patientService.findAll(query, doctorId);
   }
 
   @Get(':id')

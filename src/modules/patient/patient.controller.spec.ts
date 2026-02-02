@@ -17,7 +17,11 @@ describe('PatientController', () => {
       (this: void, dto: CreatePatientDto, doctorId?: string) => Promise<PatientResponseDto>
     >;
     findAll: jest.MockedFunction<
-      (this: void, query: PatientListQueryDto) => Promise<PatientListResultDto>
+      (
+        this: void,
+        query: PatientListQueryDto,
+        doctorId: string,
+      ) => Promise<PatientListResultDto>
     >;
     findOne: jest.MockedFunction<
       (this: void, id: string) => Promise<PatientResponseDto>
@@ -114,7 +118,7 @@ describe('PatientController', () => {
   });
 
   describe('findAll', () => {
-    it('debe llamar a patientService.findAll con query', async () => {
+    it('debe llamar a patientService.findAll con query y doctorId del usuario', async () => {
       const paginatedResult: PatientListResultDto = {
         items: [mockPatientResponse],
         page: 1,
@@ -125,9 +129,10 @@ describe('PatientController', () => {
       service.findAll.mockResolvedValue(paginatedResult);
 
       const query = { page: 1, pageSize: 10 };
-      const result = await controller.findAll(query);
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
+      const result = await controller.findAll(query, mockUser);
 
-      expect(service.findAll).toHaveBeenCalledWith(query);
+      expect(service.findAll).toHaveBeenCalledWith(query, 'doctor-uuid');
       expect(result).toEqual(paginatedResult);
       expect(result.items).toHaveLength(1);
     });
