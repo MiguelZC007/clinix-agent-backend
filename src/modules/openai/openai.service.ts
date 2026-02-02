@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import OpenAI from 'openai';
 import { ConversationService } from './conversation.service';
+import { AppointmentService } from '../appointment/appointment.service';
+import type { AppointmentResponseDto } from '../appointment/dto/appointment-response.dto';
 import environment from 'src/core/config/environments';
 
 interface ChatMessage {
@@ -327,6 +334,25 @@ const appointmentTools: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getTodaysAppointments',
+      description:
+        'Retrieve today\'s appointments for the authenticated doctor. Optional date in ISO 8601 format to query another day.',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description:
+              'Optional date in ISO 8601 format (e.g. 2026-02-01). Defaults to today.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 const clinicHistoryTools: ChatCompletionTool[] = [
@@ -542,8 +568,14 @@ const openaiTools: ChatCompletionTool[] = [
   ...clinicHistoryTools,
 ];
 
+export interface DoctorContext {
+  authToken: string;
+  doctorId: string;
+}
+
 @Injectable()
 export class OpenaiService {
+  private readonly logger = new Logger(OpenaiService.name);
   private readonly systemPrompt: string = `Eres el asistente del médico en un sistema de gestión de historias clínicas. Tu único propósito es ayudar al médico a ejecutar las siguientes funciones:
 
 FUNCIONES DISPONIBLES:
@@ -571,6 +603,7 @@ REGLAS ESTRICTAS:
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversationService: ConversationService,
+    private readonly appointmentService: AppointmentService,
   ) {
     this.openai = new OpenAI({
       apiKey: environment.OPENAI_API_KEY,
@@ -580,17 +613,13 @@ REGLAS ESTRICTAS:
   async processMessageFromDoctor(
     phoneNumber: string,
     userMessage: string,
+    context?: DoctorContext,
   ): Promise<string> {
-    const doctorInfo =
-      await this.conversationService.findDoctorByPhone(phoneNumber);
-
-    if (!doctorInfo) {
-      throw new NotFoundException('doctor-not-found-by-phone');
-    }
+    const doctorId = context?.doctorId ?? (await this.resolveDoctorId(phoneNumber));
 
     const { conversation, messages: contextMessages } =
       await this.conversationService.getOrCreateActiveConversation(
-        doctorInfo.doctorId,
+        doctorId,
         this.systemPrompt,
       );
 
@@ -600,13 +629,21 @@ REGLAS ESTRICTAS:
       userMessage,
     );
 
+    const systemContent =
+      context?.authToken != null
+        ? `${this.systemPrompt}\n\nconversationContext.authToken = ${context.authToken}`
+        : this.systemPrompt;
+
     const chatMessages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: systemContent },
       ...contextMessages,
       { role: 'user', content: userMessage },
     ];
 
-    const assistantResponse = await this.sendChatCompletion(chatMessages);
+    const assistantResponse = await this.sendChatCompletion(
+      chatMessages,
+      doctorId,
+    );
 
     await this.conversationService.addMessage(
       conversation.id,
@@ -617,14 +654,19 @@ REGLAS ESTRICTAS:
     return assistantResponse;
   }
 
-  private async sendChatCompletion(messages: ChatMessage[]): Promise<string> {
-    console.log(
-      `\n🔵 [OpenAI API] Enviando solicitud a modelo: ${environment.OPENAI_MODEL}`,
-    );
-    console.log(
-      `🔵 [OpenAI API] Total mensajes en contexto: ${messages.length}`,
-    );
+  private async resolveDoctorId(phoneNumber: string): Promise<string> {
+    const doctorInfo =
+      await this.conversationService.findDoctorByPhone(phoneNumber);
+    if (!doctorInfo) {
+      throw new NotFoundException('doctor-not-found-by-phone');
+    }
+    return doctorInfo.doctorId;
+  }
 
+  private async sendChatCompletion(
+    messages: ChatMessage[],
+    doctorId: string,
+  ): Promise<string> {
     const response = await this.openai.chat.completions.create({
       model: environment.OPENAI_MODEL,
       messages: messages.map((m) => ({
@@ -635,19 +677,13 @@ REGLAS ESTRICTAS:
       tool_choice: 'auto',
     });
 
-    console.log(`🟢 [OpenAI API] Respuesta recibida - ID: ${response.id}`);
-    console.log(`🟢 [OpenAI API] Modelo usado: ${response.model}`);
-    console.log(
-      `🟢 [OpenAI API] Tokens usados: ${response.usage?.total_tokens || 'N/A'}`,
-    );
-
     const assistantMessage = response.choices[0]?.message;
 
     if (
       assistantMessage?.tool_calls &&
       assistantMessage.tool_calls.length > 0
     ) {
-      return this.handleToolCalls(assistantMessage, messages);
+      return this.handleToolCalls(assistantMessage, messages, doctorId);
     }
 
     return (
@@ -659,6 +695,7 @@ REGLAS ESTRICTAS:
   private async handleToolCalls(
     assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
     previousMessages: ChatMessage[],
+    doctorId: string,
   ): Promise<string> {
     const toolResults: Array<OpenAI.Chat.Completions.ChatCompletionToolMessageParam> =
       [];
@@ -671,7 +708,11 @@ REGLAS ESTRICTAS:
         toolCall.function.arguments,
       );
 
-      const result = await this.executeToolFunction(functionName, functionArgs);
+      const result = await this.executeToolFunction(
+        doctorId,
+        functionName,
+        functionArgs,
+      );
 
       toolResults.push({
         tool_call_id: toolCall.id,
@@ -716,7 +757,38 @@ REGLAS ESTRICTAS:
     }
   }
 
+  private formatAppointmentsForWhatsApp(
+    appointments: AppointmentResponseDto[],
+  ): string {
+    if (appointments.length === 0) {
+      return 'No hay consultas para hoy.';
+    }
+    const lines = appointments.map((apt, i) => {
+      const date = new Date(apt.startAppointment);
+      const dateStr = date.toISOString().slice(0, 10);
+      const timeStr = date.toISOString().slice(11, 16);
+      const patientName = `${apt.patient.name} ${apt.patient.lastName}`;
+      const reason = apt.reason || '-';
+      const status = apt.status;
+      return `${i + 1}. ${dateStr} ${timeStr} | ${patientName} | ${reason} | ${status}`;
+    });
+    return lines.join('\n');
+  }
+
+  private async ensurePatientOwnership(
+    patientId: string,
+    doctorId: string,
+  ): Promise<void> {
+    const hasAppointment = await this.prisma.appointment.findFirst({
+      where: { patientId, doctorId },
+    });
+    if (!hasAppointment) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
+    }
+  }
+
   private async executeToolFunction(
+    doctorId: string,
     functionName: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
@@ -747,6 +819,9 @@ REGLAS ESTRICTAS:
 
       case 'get_all_patients':
         return this.prisma.patient.findMany({
+          where: {
+            appointments: { some: { doctorId } },
+          },
           include: {
             user: {
               select: { name: true, lastName: true, email: true, phone: true },
@@ -754,8 +829,8 @@ REGLAS ESTRICTAS:
           },
         });
 
-      case 'get_patient':
-        return this.prisma.patient.findUnique({
+      case 'get_patient': {
+        const patient = await this.prisma.patient.findUnique({
           where: { id: args.patientId as string },
           include: {
             user: {
@@ -763,8 +838,15 @@ REGLAS ESTRICTAS:
             },
           },
         });
+        if (!patient) {
+          throw new NotFoundException('patient-not-found');
+        }
+        await this.ensurePatientOwnership(patient.id, doctorId);
+        return patient;
+      }
 
-      case 'update_patient':
+      case 'update_patient': {
+        await this.ensurePatientOwnership(args.patientId as string, doctorId);
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -784,13 +866,17 @@ REGLAS ESTRICTAS:
           },
           include: { user: true },
         });
+      }
 
-      case 'delete_patient':
+      case 'delete_patient': {
+        await this.ensurePatientOwnership(args.patientId as string, doctorId);
         return this.prisma.patient.delete({
           where: { id: args.patientId as string },
         });
+      }
 
-      case 'get_patient_antecedents':
+      case 'get_patient_antecedents': {
+        await this.ensurePatientOwnership(args.patientId as string, doctorId);
         return this.prisma.patient.findUnique({
           where: { id: args.patientId as string },
           select: {
@@ -800,8 +886,10 @@ REGLAS ESTRICTAS:
             familyHistory: true,
           },
         });
+      }
 
-      case 'update_patient_antecedents':
+      case 'update_patient_antecedents': {
+        await this.ensurePatientOwnership(args.patientId as string, doctorId);
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -811,12 +899,13 @@ REGLAS ESTRICTAS:
             familyHistory: args.familyHistory as string[] | undefined,
           },
         });
+      }
 
       case 'create_appointment':
         return this.prisma.appointment.create({
           data: {
             patientId: args.patientId as string,
-            doctorId: args.doctorId as string,
+            doctorId,
             specialtyId: args.specialtyId as string,
             reason: args.reason as string | undefined,
             startAppointment: new Date(args.startAppointment as string),
@@ -827,6 +916,7 @@ REGLAS ESTRICTAS:
 
       case 'get_all_appointments':
         return this.prisma.appointment.findMany({
+          where: { doctorId },
           include: {
             patient: {
               include: { user: { select: { name: true, lastName: true } } },
@@ -837,8 +927,8 @@ REGLAS ESTRICTAS:
           },
         });
 
-      case 'get_appointment':
-        return this.prisma.appointment.findUnique({
+      case 'get_appointment': {
+        const appointment = await this.prisma.appointment.findUnique({
           where: { id: args.appointmentId as string },
           include: {
             patient: {
@@ -849,8 +939,25 @@ REGLAS ESTRICTAS:
             },
           },
         });
+        if (!appointment) {
+          throw new NotFoundException('appointment-not-found');
+        }
+        if (appointment.doctorId !== doctorId) {
+          throw new ForbiddenException('appointment-not-owned-by-doctor');
+        }
+        return appointment;
+      }
 
-      case 'update_appointment':
+      case 'update_appointment': {
+        const existingAppointment = await this.prisma.appointment.findUnique({
+          where: { id: args.appointmentId as string },
+        });
+        if (!existingAppointment) {
+          throw new NotFoundException('appointment-not-found');
+        }
+        if (existingAppointment.doctorId !== doctorId) {
+          throw new ForbiddenException('appointment-not-owned-by-doctor');
+        }
         return this.prisma.appointment.update({
           where: { id: args.appointmentId as string },
           data: {
@@ -864,16 +971,30 @@ REGLAS ESTRICTAS:
             reason: args.reason as string | undefined,
           },
         });
+      }
 
-      case 'cancel_appointment':
+      case 'cancel_appointment': {
+        const appointmentToCancel = await this.prisma.appointment.findUnique({
+          where: { id: args.appointmentId as string },
+        });
+        if (!appointmentToCancel) {
+          throw new NotFoundException('appointment-not-found');
+        }
+        if (appointmentToCancel.doctorId !== doctorId) {
+          throw new ForbiddenException('appointment-not-owned-by-doctor');
+        }
         return this.prisma.appointment.update({
           where: { id: args.appointmentId as string },
           data: { status: 'cancelled' },
         });
+      }
 
       case 'get_patient_appointments':
         return this.prisma.appointment.findMany({
-          where: { patientId: args.patientId as string },
+          where: {
+            patientId: args.patientId as string,
+            doctorId,
+          },
           include: {
             doctor: {
               include: { user: { select: { name: true, lastName: true } } },
@@ -881,12 +1002,24 @@ REGLAS ESTRICTAS:
           },
         });
 
+      case 'getTodaysAppointments': {
+        const dateArg =
+          typeof args.date === 'string' ? args.date : undefined;
+        const todaysAppointments =
+          await this.appointmentService.findTodaysByDoctor(doctorId, dateArg);
+        const formatted = this.formatAppointmentsForWhatsApp(todaysAppointments);
+        return { formattedMessage: formatted };
+      }
+
       case 'create_clinic_history': {
         const appointment = await this.prisma.appointment.findUnique({
           where: { id: args.appointmentId as string },
         });
         if (!appointment) {
-          return { error: 'Cita no encontrada' };
+          throw new NotFoundException('appointment-not-found');
+        }
+        if (appointment.doctorId !== doctorId) {
+          throw new ForbiddenException('appointment-not-owned-by-doctor');
         }
         return this.prisma.clinicHistory.create({
           data: {
@@ -939,6 +1072,7 @@ REGLAS ESTRICTAS:
 
       case 'get_all_clinic_histories':
         return this.prisma.clinicHistory.findMany({
+          where: { doctorId },
           include: {
             patient: {
               include: { user: { select: { name: true, lastName: true } } },
@@ -948,8 +1082,8 @@ REGLAS ESTRICTAS:
           },
         });
 
-      case 'get_clinic_history':
-        return this.prisma.clinicHistory.findUnique({
+      case 'get_clinic_history': {
+        const clinicHistory = await this.prisma.clinicHistory.findUnique({
           where: { id: args.clinicHistoryId as string },
           include: {
             patient: {
@@ -961,10 +1095,21 @@ REGLAS ESTRICTAS:
             prescription: { include: { prescriptionMedications: true } },
           },
         });
+        if (!clinicHistory) {
+          throw new NotFoundException('clinic-history-not-found');
+        }
+        if (clinicHistory.doctorId !== doctorId) {
+          throw new ForbiddenException('clinic-history-not-owned-by-doctor');
+        }
+        return clinicHistory;
+      }
 
       case 'get_patient_clinic_histories':
         return this.prisma.clinicHistory.findMany({
-          where: { patientId: args.patientId as string },
+          where: {
+            patientId: args.patientId as string,
+            doctorId,
+          },
           include: {
             diagnostics: true,
             vitalSigns: true,

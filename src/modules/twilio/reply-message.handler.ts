@@ -1,10 +1,14 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
 import { OpenaiService } from '../openai/openai.service';
+import { ConversationService } from '../openai/conversation.service';
+import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
 import type { ProcessIncomingMessageResult } from './twilio.service';
 
 const MESSAGE_DELAY_MS = 500;
+const NOT_DOCTOR_MESSAGE =
+  'El número no está registrado como médico. Contacta al administrador.';
 
 @Injectable()
 export class ReplyMessageHandler {
@@ -12,13 +16,34 @@ export class ReplyMessageHandler {
 
   constructor(
     private readonly openaiService: OpenaiService,
+    private readonly conversationService: ConversationService,
+    private readonly authSessionService: AuthSessionService,
     @Inject(forwardRef(() => TwilioService))
     private readonly twilioService: TwilioService,
-  ) {}
+  ) { }
 
   async handle(
     webhookData: WebhookMessageDto,
   ): Promise<Omit<ProcessIncomingMessageResult, 'alreadyProcessed'>> {
+    const doctorInfo = await this.conversationService.findDoctorByPhone(
+      webhookData.From,
+    );
+    if (!doctorInfo) {
+      await this.twilioService.sendReply(
+        webhookData.To,
+        webhookData.From,
+        NOT_DOCTOR_MESSAGE,
+      );
+      return {
+        success: true,
+        message: 'Mensaje rechazado: número no registrado como médico',
+        data: {
+          messageSid: webhookData.MessageSid,
+          from: webhookData.From,
+        },
+      };
+    }
+
     await this.twilioService.updateLastInbound(
       webhookData.To,
       webhookData.From,
@@ -34,23 +59,26 @@ export class ReplyMessageHandler {
 
     let assistantResponse: string;
 
+    const session = await this.authSessionService.getOrCreateSession(
+      phoneNumber,
+      doctorInfo.doctorId,
+    );
+
     try {
       assistantResponse = await this.openaiService.processMessageFromDoctor(
         phoneNumber,
         userMessage,
+        {
+          authToken: session.authToken,
+          doctorId: doctorInfo.doctorId,
+        },
       );
     } catch (error) {
-      const status = this.getErrorStatus(error);
-      if (status === 404) {
-        assistantResponse =
-          'No estás registrado como médico en el sistema. Por favor, contacta al administrador.';
-      } else {
-        this.logger.error(
-          `Error procesando mensaje con OpenAI: ${this.getErrorMessage(error)}`,
-        );
-        assistantResponse =
-          'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
-      }
+      this.logger.error(
+        `Error procesando mensaje con OpenAI: ${this.getErrorMessage(error)}`,
+      );
+      assistantResponse =
+        'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
     }
 
     const messageParts = this.twilioService.splitMessage(assistantResponse);

@@ -108,7 +108,7 @@ describe('TwilioController', () => {
       expect(mockEnd).toHaveBeenCalled();
     });
 
-    it('debe manejar errores del webhook', async () => {
+    it('debe propagar errores del webhook al filtro global', async () => {
       const webhookData = {};
       const mockRequest = { body: webhookData } as Request;
       const mockEnd = jest.fn();
@@ -126,13 +126,13 @@ describe('TwilioController', () => {
 
       service.processIncomingMessage.mockRejectedValue(new Error('Test error'));
 
-      await controller.receiveWhatsAppMessage(
-        webhookData,
-        mockRequest,
-        mockResponse as unknown as Response,
-      );
-
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      await expect(
+        controller.receiveWhatsAppMessage(
+          webhookData,
+          mockRequest,
+          mockResponse as unknown as Response,
+        ),
+      ).rejects.toThrow('Test error');
     });
   });
 

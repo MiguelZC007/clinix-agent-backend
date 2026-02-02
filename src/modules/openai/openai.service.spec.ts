@@ -35,6 +35,7 @@ describe('OpenaiService', () => {
     appointment: {
       create: jest.Mock;
       findMany: jest.Mock;
+      findFirst: jest.Mock;
       findUnique: jest.Mock;
       update: jest.Mock;
     };
@@ -49,6 +50,7 @@ describe('OpenaiService', () => {
     getOrCreateActiveConversation: jest.Mock;
     addMessage: jest.Mock;
   };
+  let mockAppointmentService: { findTodaysByDoctor: jest.Mock };
 
   const mockConversation = {
     id: 'conversation-uuid',
@@ -72,6 +74,7 @@ describe('OpenaiService', () => {
       appointment: {
         create: jest.fn(),
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
       },
@@ -87,10 +90,14 @@ describe('OpenaiService', () => {
       getOrCreateActiveConversation: jest.fn(),
       addMessage: jest.fn(),
     };
+    mockAppointmentService = {
+      findTodaysByDoctor: jest.fn().mockResolvedValue([]),
+    };
 
     service = new OpenaiService(
       mockPrisma as never,
       mockConversationService as never,
+      mockAppointmentService as never,
     );
   });
 
@@ -324,13 +331,13 @@ describe('OpenaiService', () => {
       >;
       const createArg = userCreateCalls[0]?.[0] as
         | {
-            data?: {
-              email?: unknown;
-              name?: unknown;
-              lastName?: unknown;
-              phone?: unknown;
-            };
-          }
+          data?: {
+            email?: unknown;
+            name?: unknown;
+            lastName?: unknown;
+            phone?: unknown;
+          };
+        }
         | undefined;
       expect(createArg?.data?.email).toBe('nuevo@test.com');
       expect(createArg?.data?.name).toBe('Carlos');
@@ -353,6 +360,11 @@ describe('OpenaiService', () => {
       };
 
       mockPrisma.patient.findUnique.mockResolvedValue(mockPatient);
+      mockPrisma.appointment.findFirst.mockResolvedValue({
+        id: 'apt-1',
+        doctorId: 'doctor-uuid',
+        patientId: 'patient-uuid',
+      });
 
       mockChatCompletionsCreate
         .mockResolvedValueOnce({
@@ -401,6 +413,11 @@ describe('OpenaiService', () => {
     });
 
     it('debe ejecutar tool call cancel_appointment', async () => {
+      mockPrisma.appointment.findUnique.mockResolvedValue({
+        id: 'appointment-uuid',
+        doctorId: 'doctor-uuid',
+        status: 'pending',
+      });
       mockPrisma.appointment.update.mockResolvedValue({
         id: 'appointment-uuid',
         status: 'cancelled',

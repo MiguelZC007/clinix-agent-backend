@@ -28,7 +28,7 @@ import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 export class TwilioController {
   private readonly logger = new Logger(TwilioController.name);
 
-  constructor(private readonly twilioService: TwilioService) {}
+  constructor(private readonly twilioService: TwilioService) { }
 
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -153,27 +153,15 @@ export class TwilioController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    try {
-      this.logger.log('Webhook recibido de Twilio');
-      this.logger.log('Webhook req de Twilio', req.body);
-      this.logger.debug(
-        'Datos del webhook:',
-        JSON.stringify(webhookData, null, 2),
-      );
+    this.logger.log('Webhook recibido de Twilio');
+    this.logger.debug(
+      'Datos del webhook:',
+      JSON.stringify(webhookData, null, 2),
+    );
 
-      await this.twilioService.processIncomingMessage(webhookData);
+    await this.twilioService.processIncomingMessage(webhookData);
 
-      res.status(200).end();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      const stack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Error procesando webhook: ${message}`, stack);
-      res.status(500).json({
-        success: false,
-        message: 'Error procesando webhook',
-        error: message,
-      });
-    }
+    res.status(200).end();
   }
 
   @Get('message/:messageSid/status')

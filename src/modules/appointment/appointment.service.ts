@@ -17,7 +17,7 @@ import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 
 @Injectable()
 export class AppointmentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(
     createAppointmentDto: CreateAppointmentDto,
@@ -293,6 +293,36 @@ export class AppointmentService {
         doctor: { include: { user: true, specialty: true } },
       },
       orderBy: { startAppointment: 'desc' },
+    });
+
+    return appointments.map((appointment) =>
+      this.mapToAppointmentResponse(appointment),
+    );
+  }
+
+  async findTodaysByDoctor(
+    doctorId: string,
+    date?: string,
+  ): Promise<AppointmentResponseDto[]> {
+    const ref = date ? new Date(date) : new Date();
+    const startOfDay = new Date(ref);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date(ref);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    const appointments = await this.prisma.appointment.findMany({
+      where: {
+        doctorId,
+        startAppointment: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      include: {
+        patient: { include: { user: true } },
+        doctor: { include: { user: true, specialty: true } },
+      },
+      orderBy: { startAppointment: 'asc' },
     });
 
     return appointments.map((appointment) =>

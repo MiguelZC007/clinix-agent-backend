@@ -271,4 +271,42 @@ describe('AppointmentService', () => {
       );
     });
   });
+
+  describe('findTodaysByDoctor', () => {
+    it('debe retornar lista vacía cuando no hay citas', async () => {
+      prisma.appointment.findMany.mockResolvedValue([]);
+
+      const result = await service.findTodaysByDoctor('doctor-uuid');
+
+      expect(result).toHaveLength(0);
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ doctorId: 'doctor-uuid' }),
+        }),
+      );
+    });
+
+    it('debe retornar citas del día para el doctor', async () => {
+      prisma.appointment.findMany.mockResolvedValue([mockAppointment]);
+
+      const result = await service.findTodaysByDoctor('doctor-uuid');
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('debe aceptar fecha opcional', async () => {
+      prisma.appointment.findMany.mockResolvedValue([]);
+
+      await service.findTodaysByDoctor('doctor-uuid', '2026-02-01');
+
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            doctorId: 'doctor-uuid',
+            startAppointment: expect.any(Object),
+          }),
+        }),
+      );
+    });
+  });
 });
