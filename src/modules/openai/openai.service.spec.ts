@@ -48,6 +48,7 @@ describe('OpenaiService', () => {
   let mockConversationService: {
     findDoctorByPhone: jest.Mock;
     getOrCreateActiveConversation: jest.Mock;
+    getContextForConversation: jest.Mock;
     addMessage: jest.Mock;
   };
   let mockAppointmentService: { findTodaysByDoctor: jest.Mock };
@@ -88,6 +89,7 @@ describe('OpenaiService', () => {
     mockConversationService = {
       findDoctorByPhone: jest.fn(),
       getOrCreateActiveConversation: jest.fn(),
+      getContextForConversation: jest.fn(),
       addMessage: jest.fn(),
     };
     mockAppointmentService = {
@@ -210,6 +212,48 @@ describe('OpenaiService', () => {
       expect(
         messages.some((m) => m.role === 'user' && m.content === 'Juan'),
       ).toBe(true);
+    });
+  });
+
+  describe('processMessageInConversation', () => {
+    it('obtiene contexto, llama a OpenAI y persiste respuesta del asistente', async () => {
+      const contextMessages = [
+        { role: 'user', content: 'Hola' },
+        { role: 'assistant', content: '¿En qué puedo ayudarte?' },
+      ];
+      mockConversationService.getContextForConversation.mockResolvedValue(
+        contextMessages,
+      );
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+
+      mockChatCompletionsCreate.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: 'Puedo ayudarte con pacientes, citas e historias clínicas.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
+
+      const result = await service.processMessageInConversation(
+        'doctor-uuid',
+        'conversation-uuid',
+      );
+
+      expect(result).toBe(
+        'Puedo ayudarte con pacientes, citas e historias clínicas.',
+      );
+      expect(
+        mockConversationService.getContextForConversation,
+      ).toHaveBeenCalledWith('conversation-uuid', 'doctor-uuid');
+      expect(mockConversationService.addMessage).toHaveBeenCalledTimes(1);
+      expect(mockConversationService.addMessage).toHaveBeenCalledWith(
+        'conversation-uuid',
+        'assistant',
+        'Puedo ayudarte con pacientes, citas e historias clínicas.',
+      );
     });
   });
 

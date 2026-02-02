@@ -49,5 +49,19 @@ export class ConversationResponseDto {
     example: '2026-01-25T10:30:00.000Z',
   })
   updatedAt: Date;
+
+  @ApiProperty({
+    description: 'Límite de mensajes recientes en el contexto del agente',
+    example: 10,
+    required: false,
+  })
+  contextMessageLimit?: number;
+
+  @ApiProperty({
+    description: 'Título sugerido para la UI (derivado de resumen o fecha)',
+    example: 'Conversación 1 ene',
+    required: false,
+  })
+  title?: string;
 }
 

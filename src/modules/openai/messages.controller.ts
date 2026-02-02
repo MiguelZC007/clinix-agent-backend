@@ -6,6 +6,7 @@ import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import { ConversationService } from './conversation.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
+import { OpenaiService } from './openai.service';
 
 type DoctorRef = { id: string };
 type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
@@ -13,7 +14,10 @@ type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
 @ApiTags('Messages')
 @Controller('messages')
 export class MessagesController {
-  constructor(private readonly conversationService: ConversationService) {}
+  constructor(
+    private readonly conversationService: ConversationService,
+    private readonly openaiService: OpenaiService,
+  ) { }
 
   @Post()
   @ApiOperation({ summary: 'Crear un mensaje en una conversación' })
@@ -32,6 +36,10 @@ export class MessagesController {
       doctorId,
       dto.role ?? 'user',
       dto.content,
+    );
+    await this.openaiService.processMessageInConversation(
+      doctorId,
+      dto.conversationId,
     );
     return this.toMessageDto(message);
   }

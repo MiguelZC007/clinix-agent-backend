@@ -103,17 +103,18 @@ model ClinicHistory {
 }
 
 model Conversation {
-  id             String    @id @default(uuid())
-  model          String
-  systemPrompt   String
-  summary        String?
-  lastActivityAt DateTime  @default(now())
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  doctorId       String
-  doctor         Doctor    @relation(fields: [doctorId], references: [id])
-  messages       Message[]
+  id                  String    @id @default(uuid())
+  model               String
+  systemPrompt        String
+  summary             String?
+  contextMessageLimit Int?
+  lastActivityAt      DateTime  @default(now())
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  doctorId            String
+  doctor              Doctor    @relation(fields: [doctorId], references: [id])
+  messages            Message[]
 }
 
 model Message {

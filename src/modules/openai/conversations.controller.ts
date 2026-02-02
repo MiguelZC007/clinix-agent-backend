@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Put,
   ForbiddenException,
   NotFoundException,
@@ -14,6 +17,8 @@ import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import { ConversationService } from './conversation.service';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
+import { UpdateConversationDto } from './dto/update-conversation.dto';
+import { OpenaiService } from './openai.service';
 
 type DoctorRef = { id: string };
 type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
@@ -21,7 +26,10 @@ type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
 @ApiTags('Conversations')
 @Controller('conversations')
 export class ConversationsController {
-  constructor(private readonly conversationService: ConversationService) {}
+  constructor(
+    private readonly conversationService: ConversationService,
+    private readonly openaiService: OpenaiService,
+  ) { }
 
   @Get()
   @ApiOperation({ summary: 'Listar conversaciones del doctor autenticado' })
@@ -35,6 +43,21 @@ export class ConversationsController {
     const conversations =
       await this.conversationService.listConversationsByDoctorId(doctorId);
     return conversations.map((c) => this.toConversationDto(c));
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Iniciar una nueva conversación' })
+  @ApiResponse({
+    status: 201,
+    description: 'Conversación creada',
+    type: ConversationResponseDto,
+  })
+  async create(@User() user: unknown): Promise<ConversationResponseDto> {
+    const doctorId = this.getDoctorId(user);
+    const systemPrompt = this.openaiService.getSystemPrompt();
+    const conversation =
+      await this.conversationService.startNewConversation(doctorId, systemPrompt);
+    return this.toConversationDto(conversation);
   }
 
   @Get(':id/messages')
@@ -61,6 +84,29 @@ export class ConversationsController {
       id,
     );
     return messages.map((m) => this.toMessageDto(m));
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Actualizar configuración de una conversación' })
+  @ApiParam({ name: 'id', description: 'ID de la conversación (UUID)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Conversación actualizada',
+    type: ConversationResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Conversación no encontrada' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateConversationDto,
+    @User() user: unknown,
+  ): Promise<ConversationResponseDto> {
+    const doctorId = this.getDoctorId(user);
+    const conversation = await this.conversationService.updateConversation(
+      id,
+      doctorId,
+      { contextMessageLimit: dto.contextMessageLimit },
+    );
+    return this.toConversationDto(conversation);
   }
 
   @Put(':id/read')
@@ -98,6 +144,7 @@ export class ConversationsController {
   }
 
   private toConversationDto(conversation: Conversation): ConversationResponseDto {
+    const title = this.deriveTitle(conversation);
     return {
       id: conversation.id,
       model: conversation.model,
@@ -108,7 +155,20 @@ export class ConversationsController {
       doctorId: conversation.doctorId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      contextMessageLimit: conversation.contextMessageLimit ?? undefined,
+      title,
     };
+  }
+
+  private deriveTitle(conversation: Conversation): string {
+    if (conversation.summary && conversation.summary.trim().length > 0) {
+      const trimmed = conversation.summary.trim();
+      return trimmed.length > 50 ? `${trimmed.slice(0, 47)}...` : trimmed;
+    }
+    const d = new Date(conversation.lastActivityAt);
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es', { month: 'short' });
+    return `Conversación ${day} ${month}`;
   }
 
   private toMessageDto(message: Message): MessageResponseDto {

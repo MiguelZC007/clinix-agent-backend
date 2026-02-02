@@ -19,6 +19,7 @@ jest.mock('src/core/config/environments', () => ({
   },
 }));
 
+import { NotFoundException } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 
 describe('ConversationService', () => {
@@ -30,6 +31,7 @@ describe('ConversationService', () => {
       findUnique: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
     };
     message: {
       create: jest.Mock;
@@ -60,6 +62,7 @@ describe('ConversationService', () => {
     model: 'gpt-4',
     systemPrompt: 'Test prompt',
     summary: null,
+    contextMessageLimit: null,
     lastActivityAt: new Date(),
     isActive: true,
     createdAt: new Date(),
@@ -77,6 +80,7 @@ describe('ConversationService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       },
       message: {
         create: jest.fn(),
@@ -291,13 +295,13 @@ describe('ConversationService', () => {
       >;
       const createArg = createCalls[0]?.[0] as
         | {
-            data?: {
-              conversationId?: unknown;
-              role?: unknown;
-              content?: unknown;
-              tokenCount?: unknown;
-            };
-          }
+          data?: {
+            conversationId?: unknown;
+            role?: unknown;
+            content?: unknown;
+            tokenCount?: unknown;
+          };
+        }
         | undefined;
       expect(createArg?.data?.conversationId).toBe('conversation-uuid');
       expect(createArg?.data?.role).toBe('user');
@@ -344,6 +348,141 @@ describe('ConversationService', () => {
     });
   });
 
+  describe('startNewConversation', () => {
+    it('debe desactivar conversaciones activas y crear una nueva', async () => {
+      mockPrisma.conversation.updateMany.mockResolvedValue({ count: 1 });
+      const newConversation = {
+        ...mockConversation,
+        id: 'new-conv-uuid',
+        messages: [],
+      };
+      mockPrisma.conversation.create.mockResolvedValue(newConversation);
+
+      const result = await service.startNewConversation(
+        'doctor-uuid',
+        'System prompt',
+      );
+
+      expect(mockPrisma.conversation.updateMany).toHaveBeenCalledWith({
+        where: { doctorId: 'doctor-uuid', isActive: true },
+        data: { isActive: false },
+      });
+      expect(mockPrisma.conversation.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          doctorId: 'doctor-uuid',
+          systemPrompt: 'System prompt',
+          isActive: true,
+        }),
+      });
+      expect(result.id).toBe('new-conv-uuid');
+    });
+  });
+
+  describe('getConversationWithMessagesForDoctor', () => {
+    it('retorna null si la conversación no existe', async () => {
+      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+
+      const result = await service.getConversationWithMessagesForDoctor(
+        'conv-uuid',
+        'doctor-uuid',
+      );
+
+      expect(result).toBeNull();
+      expect(mockPrisma.conversation.findFirst).toHaveBeenCalledWith({
+        where: { id: 'conv-uuid', doctorId: 'doctor-uuid' },
+        include: {
+          messages: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+    });
+
+    it('retorna conversación con mensajes si existe y pertenece al doctor', async () => {
+      const convWithMessages = {
+        ...mockConversation,
+        messages: [
+          {
+            id: 'msg-1',
+            role: 'user',
+            content: 'Hola',
+            tokenCount: 1,
+            readAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            conversationId: 'conv-uuid',
+          },
+        ],
+      };
+      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
+
+      const result = await service.getConversationWithMessagesForDoctor(
+        'conv-uuid',
+        'doctor-uuid',
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('conversation-uuid');
+      expect(result?.messages).toHaveLength(1);
+      expect(result?.messages[0].content).toBe('Hola');
+    });
+  });
+
+  describe('getContextForConversation', () => {
+    it('lanza NotFound si la conversación no existe', async () => {
+      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+
+      return expect(
+        service.getContextForConversation('conv-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('retorna contexto con resumen y últimos N mensajes según contextMessageLimit', async () => {
+      const messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'Mensaje 1',
+          tokenCount: 1,
+          readAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          conversationId: 'conv-uuid',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: 'Respuesta 1',
+          tokenCount: 1,
+          readAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          conversationId: 'conv-uuid',
+        },
+      ];
+      const convWithMessages = {
+        ...mockConversation,
+        summary: 'Resumen previo',
+        contextMessageLimit: 5,
+        messages,
+      };
+      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
+
+      const result = await service.getContextForConversation(
+        'conv-uuid',
+        'doctor-uuid',
+      );
+
+      expect(result.length).toBeGreaterThan(0);
+      const systemMsg = result.find((m) => m.role === 'system');
+      expect(systemMsg?.content).toContain('Resumen previo');
+      const recent = result.filter(
+        (m) => m.role === 'user' || m.role === 'assistant',
+      );
+      expect(recent.length).toBe(2);
+      expect(recent[0].content).toBe('Mensaje 1');
+      expect(recent[1].content).toBe('Respuesta 1');
+    });
+  });
+
   describe('Ventana deslizante de mensajes', () => {
     it('debe retornar solo los últimos 10 mensajes', async () => {
       const manyMessages = Array.from({ length: 15 }, (_, i) => ({
@@ -371,6 +510,36 @@ describe('ConversationService', () => {
       );
 
       expect(result.messages.length).toBeLessThanOrEqual(10);
+    });
+
+    it('debe respetar contextMessageLimit cuando está definido', async () => {
+      const manyMessages = Array.from({ length: 15 }, (_, i) => ({
+        id: `msg-${i}`,
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Mensaje ${i}`,
+        tokenCount: 1,
+        readAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        conversationId: 'conversation-uuid',
+      }));
+      const conversationWithLimit = {
+        ...mockConversation,
+        contextMessageLimit: 3,
+        messages: manyMessages,
+      };
+      mockPrisma.conversation.findFirst.mockResolvedValue(conversationWithLimit);
+      mockPrisma.conversation.update.mockResolvedValue(conversationWithLimit);
+
+      const result = await service.getOrCreateActiveConversation(
+        'doctor-uuid',
+        'System prompt',
+      );
+
+      const recentOnly = result.messages.filter(
+        (m) => m.role === 'user' || m.role === 'assistant',
+      );
+      expect(recentOnly.length).toBe(3);
     });
   });
 });

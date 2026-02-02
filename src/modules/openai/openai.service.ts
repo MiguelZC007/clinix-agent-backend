@@ -654,6 +654,41 @@ REGLAS ESTRICTAS:
     return assistantResponse;
   }
 
+  async processMessageInConversation(
+    doctorId: string,
+    conversationId: string,
+    context?: DoctorContext,
+  ): Promise<string> {
+    const contextMessages =
+      await this.conversationService.getContextForConversation(
+        conversationId,
+        doctorId,
+      );
+
+    const systemContent =
+      context?.authToken != null
+        ? `${this.systemPrompt}\n\nconversationContext.authToken = ${context.authToken}`
+        : this.systemPrompt;
+
+    const chatMessages: ChatMessage[] = [
+      { role: 'system', content: systemContent },
+      ...contextMessages,
+    ];
+
+    const assistantResponse = await this.sendChatCompletion(
+      chatMessages,
+      doctorId,
+    );
+
+    await this.conversationService.addMessage(
+      conversationId,
+      'assistant',
+      assistantResponse,
+    );
+
+    return assistantResponse;
+  }
+
   private async resolveDoctorId(phoneNumber: string): Promise<string> {
     const doctorInfo =
       await this.conversationService.findDoctorByPhone(phoneNumber);

@@ -147,7 +147,8 @@ export class ConversationService {
       });
     }
 
-    const recentMessages = conversation.messages.slice(-MAX_RECENT_MESSAGES);
+    const limit = conversation.contextMessageLimit ?? MAX_RECENT_MESSAGES;
+    const recentMessages = conversation.messages.slice(-limit);
 
     for (const msg of recentMessages) {
       messages.push({
@@ -298,6 +299,25 @@ export class ConversationService {
     });
   }
 
+  async startNewConversation(
+    doctorId: string,
+    systemPrompt: string,
+  ): Promise<Conversation> {
+    await this.prisma.conversation.updateMany({
+      where: { doctorId, isActive: true },
+      data: { isActive: false },
+    });
+    return this.prisma.conversation.create({
+      data: {
+        doctorId,
+        model: environment.OPENAI_MODEL,
+        systemPrompt,
+        isActive: true,
+        lastActivityAt: new Date(),
+      },
+    });
+  }
+
   async getConversationByIdForDoctor(
     conversationId: string,
     doctorId: string,
@@ -306,6 +326,57 @@ export class ConversationService {
       where: {
         id: conversationId,
         doctorId,
+      },
+    });
+  }
+
+  async getConversationWithMessagesForDoctor(
+    conversationId: string,
+    doctorId: string,
+  ): Promise<(Conversation & { messages: Message[] }) | null> {
+    return this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        doctorId,
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' as const },
+        },
+      },
+    });
+  }
+
+  async getContextForConversation(
+    conversationId: string,
+    doctorId: string,
+  ): Promise<ConversationMessage[]> {
+    const conversation =
+      await this.getConversationWithMessagesForDoctor(conversationId, doctorId);
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+    return this.buildContextMessages(conversation);
+  }
+
+  async updateConversation(
+    conversationId: string,
+    doctorId: string,
+    data: { contextMessageLimit?: number },
+  ): Promise<Conversation> {
+    const conversation = await this.getConversationByIdForDoctor(
+      conversationId,
+      doctorId,
+    );
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        ...(data.contextMessageLimit !== undefined && {
+          contextMessageLimit: data.contextMessageLimit,
+        }),
       },
     });
   }
