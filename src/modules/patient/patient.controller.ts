@@ -9,6 +9,7 @@ import {
   Put,
   Query,
   ParseUUIDPipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,8 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
+import { User } from 'src/core/decorators/user.decorator';
+import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import { PatientService, PatientListResultDto } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -26,11 +29,14 @@ import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
 import { PatientListQueryDto } from './dto/patient-list-query.dto';
 
+type DoctorRef = { id: string };
+type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
+
 @ApiTags('Patients')
 @Controller('patients')
 @ApiBearerAuth('JWT-auth')
 export class PatientController {
-  constructor(private readonly patientService: PatientService) {}
+  constructor(private readonly patientService: PatientService) { }
 
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo paciente' })
@@ -41,10 +47,28 @@ export class PatientController {
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   @ApiResponse({ status: 409, description: 'Email o teléfono ya existe' })
+  @ApiResponse({ status: 403, description: 'Solo doctores pueden registrar pacientes' })
   create(
     @Body() createPatientDto: CreatePatientDto,
+    @User() user: unknown,
   ): Promise<PatientResponseDto> {
-    return this.patientService.create(createPatientDto);
+    const doctorId = this.getDoctorId(user);
+    return this.patientService.create(createPatientDto, doctorId);
+  }
+
+  private getDoctorId(user: unknown): string {
+    if (!user || typeof user !== 'object') {
+      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
+    }
+    const doctor = (user as AuthenticatedRequestUser).doctor;
+    if (!doctor || typeof doctor !== 'object') {
+      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
+    }
+    const id = (doctor as DoctorRef).id;
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
+    }
+    return id;
   }
 
   @Get()

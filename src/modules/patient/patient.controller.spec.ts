@@ -14,7 +14,7 @@ describe('PatientController', () => {
   let controller: PatientController;
   type MockPatientService = {
     create: jest.MockedFunction<
-      (this: void, dto: CreatePatientDto) => Promise<PatientResponseDto>
+      (this: void, dto: CreatePatientDto, doctorId?: string) => Promise<PatientResponseDto>
     >;
     findAll: jest.MockedFunction<
       (this: void, query: PatientListQueryDto) => Promise<PatientListResultDto>
@@ -93,7 +93,7 @@ describe('PatientController', () => {
   });
 
   describe('create', () => {
-    it('debe llamar a patientService.create con el DTO correcto', async () => {
+    it('debe llamar a patientService.create con el DTO y doctorId del usuario logueado', async () => {
       const createDto: CreatePatientDto = {
         email: 'test@example.com',
         name: 'Juan',
@@ -102,12 +102,13 @@ describe('PatientController', () => {
         address: 'Calle 123',
         gender: Gender.MALE,
       };
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
 
       service.create.mockResolvedValue(mockPatientResponse);
 
-      const result = await controller.create(createDto);
+      const result = await controller.create(createDto, mockUser);
 
-      expect(service.create).toHaveBeenCalledWith(createDto);
+      expect(service.create).toHaveBeenCalledWith(createDto, 'doctor-uuid');
       expect(result).toEqual(mockPatientResponse);
     });
   });

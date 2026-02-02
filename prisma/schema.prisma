@@ -21,34 +21,37 @@ model User {
 }
 
 model Patient {
-  id              String          @id @default(uuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id])
-  address         String?
-  gender          String?
-  birthDate       DateTime?
-  allergies       String[]
-  medications     String[]
-  medicalHistory  String[]
-  familyHistory   String[]
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  clinicHistories ClinicHistory[]
-  appointments    Appointment[]
+  id                   String          @id @default(uuid())
+  userId               String          @unique
+  user                 User            @relation(fields: [userId], references: [id])
+  registeredByDoctorId String?
+  registeredBy         Doctor?         @relation(fields: [registeredByDoctorId], references: [id])
+  address              String?
+  gender               String?
+  birthDate            DateTime?
+  allergies            String[]
+  medications          String[]
+  medicalHistory       String[]
+  familyHistory        String[]
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  clinicHistories      ClinicHistory[]
+  appointments         Appointment[]
 }
 
 model Doctor {
-  id              String          @id @default(uuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id])
-  specialtyId     String
-  specialty       Specialty       @relation(fields: [specialtyId], references: [id])
-  licenseNumber   String
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  clinicHistories ClinicHistory[]
-  conversations   Conversation[]
-  appointments    Appointment[]
+  id                 String          @id @default(uuid())
+  userId             String          @unique
+  user               User            @relation(fields: [userId], references: [id])
+  specialtyId        String
+  specialty          Specialty       @relation(fields: [specialtyId], references: [id])
+  licenseNumber      String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  clinicHistories    ClinicHistory[]
+  conversations      Conversation[]
+  appointments       Appointment[]
+  registeredPatients Patient[]
 }
 
 model Specialty {

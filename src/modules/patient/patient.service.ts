@@ -22,10 +22,11 @@ export interface PatientListResultDto {
 
 @Injectable()
 export class PatientService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(
     createPatientDto: CreatePatientDto,
+    doctorId?: string,
   ): Promise<PatientResponseDto> {
     const existingUser = await this.prisma.user.findFirst({
       where: {
@@ -49,6 +50,7 @@ export class PatientService {
         password: createPatientDto.password,
         patient: {
           create: {
+            registeredByDoctorId: doctorId ?? undefined,
             address: createPatientDto.address,
             gender: createPatientDto.gender,
             birthDate: createPatientDto.birthDate
@@ -78,14 +80,14 @@ export class PatientService {
 
     const where = search
       ? {
-          user: {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' as const } },
-              { lastName: { contains: search, mode: 'insensitive' as const } },
-              { phone: { contains: search } },
-            ],
-          },
-        }
+        user: {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { lastName: { contains: search, mode: 'insensitive' as const } },
+            { phone: { contains: search } },
+          ],
+        },
+      }
       : {};
 
     const [patients, total] = await this.prisma.$transaction([

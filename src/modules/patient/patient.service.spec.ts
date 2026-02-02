@@ -89,6 +89,28 @@ describe('PatientService', () => {
         ConflictException,
       );
     });
+
+    it('debe incluir registeredByDoctorId cuando se pasa doctorId', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        ...mockUser,
+        patient: mockPatient,
+      });
+
+      await service.create(createDto, 'doctor-uuid');
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            patient: expect.objectContaining({
+              create: expect.objectContaining({
+                registeredByDoctorId: 'doctor-uuid',
+              }),
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('findAll', () => {
