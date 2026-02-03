@@ -184,6 +184,8 @@ const medicationNames = [
   'Levotiroxina',
 ];
 
+const TEST_DOCTOR_PHONES = ['+59160365521', '+59177484885'] as const;
+
 function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
@@ -255,7 +257,7 @@ async function main() {
   );
   console.log(`✅ ${createdSpecialties.length} especialidades creadas`);
 
-  const testPhone = process.env.TEST_PHONE ?? '+59160365521';
+  const e2eDoctorPhone = process.env.TEST_PHONE ?? '+59100000000';
   const testPassword = process.env.TEST_PASSWORD ?? 'password123';
   const testPasswordHash = await bcrypt.hash(testPassword, 10);
   const testUserEmail = 'test-e2e@clinix.local';
@@ -267,11 +269,11 @@ async function main() {
       email: testUserEmail,
       name: 'Usuario',
       lastName: 'Prueba E2E',
-      phone: testPhone,
+      phone: e2eDoctorPhone,
       password: testPasswordHash,
     },
     update: {
-      phone: testPhone,
+      phone: e2eDoctorPhone,
       password: testPasswordHash,
     },
   });
@@ -303,7 +305,7 @@ async function main() {
     const firstName = doctorFirstNames[i];
     const lastName = doctorLastNames[i];
     const email = generateEmail(firstName, lastName, i);
-    const phone = generatePhone();
+    const phone = i < TEST_DOCTOR_PHONES.length ? TEST_DOCTOR_PHONES[i] : generatePhone();
 
     const user = await prisma.user.create({
       data: {
@@ -362,6 +364,7 @@ async function main() {
     const patient = await prisma.patient.create({
       data: {
         userId: user.id,
+        registeredByDoctorId: doctors[i % doctors.length].id,
         gender,
         birthDate,
         allergies: antecedents.allergies,
@@ -426,13 +429,13 @@ async function main() {
   for (const appointment of appointments) {
     const patient = patients.find(p => p.id === appointment.patientId);
     const doctor = doctors.find(d => d.id === appointment.doctorId);
-    
+
     if (!patient || !doctor) continue;
 
     const consultationReason = getRandomElement(consultationReasons);
     const selectedSymptoms = getRandomElements(symptoms, 1, 4);
     const treatment = `Tratamiento prescrito según evaluación clínica. ${getRandomElement(['Reposo', 'Medicación', 'Terapia', 'Control'])} recomendado.`;
-    
+
     const diagnosticName = getRandomElement(diagnosticNames);
     const diagnosticDescription = `Diagnóstico basado en síntomas y examen físico. ${diagnosticName} confirmado.`;
 
@@ -492,28 +495,28 @@ async function main() {
         },
         ...(hasPrescription && medicationCount > 0
           ? {
-              prescription: {
-                create: {
-                  name: `Receta médica - ${consultationReason}`,
-                  description: 'Medicamentos prescritos según diagnóstico',
-                  prescriptionMedications: {
-                    create: Array.from({ length: medicationCount }, () => {
-                      const medName = getRandomElement(medicationNames);
-                      return {
-                        name: medName,
-                        quantity: Math.floor(Math.random() * 20) + 10,
-                        unit: 'tabletas',
-                        frequency: getRandomElement(['Cada 8 horas', 'Cada 12 horas', 'Una vez al día', 'Cada 6 horas']),
-                        duration: `${Math.floor(Math.random() * 7) + 3} días`,
-                        indications: 'Tomar con alimentos',
-                        administrationRoute: 'Oral',
-                        description: `Medicamento: ${medName}`,
-                      };
-                    }),
-                  },
+            prescription: {
+              create: {
+                name: `Receta médica - ${consultationReason}`,
+                description: 'Medicamentos prescritos según diagnóstico',
+                prescriptionMedications: {
+                  create: Array.from({ length: medicationCount }, () => {
+                    const medName = getRandomElement(medicationNames);
+                    return {
+                      name: medName,
+                      quantity: Math.floor(Math.random() * 20) + 10,
+                      unit: 'tabletas',
+                      frequency: getRandomElement(['Cada 8 horas', 'Cada 12 horas', 'Una vez al día', 'Cada 6 horas']),
+                      duration: `${Math.floor(Math.random() * 7) + 3} días`,
+                      indications: 'Tomar con alimentos',
+                      administrationRoute: 'Oral',
+                      description: `Medicamento: ${medName}`,
+                    };
+                  }),
                 },
               },
-            }
+            },
+          }
           : {}),
       },
     });
