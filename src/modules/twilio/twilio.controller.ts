@@ -93,66 +93,66 @@ export class TwilioController {
     );
   }
 
-  @Public()
-  @UseGuards(TwilioWebhookGuard, ThrottlerGuard)
-  @Throttle({
-    default: {
-      limit: 30,
-      ttl: 60_000,
-      getTracker: (req: Request) =>
-        (req.body as { From?: string } | undefined)?.From ?? req.ip ?? 'unknown',
-    },
-  })
-  @Post('webhook/whatsapp')
+  /* @Public()
+   @UseGuards(TwilioWebhookGuard, ThrottlerGuard)
+   @Throttle({
+     default: {
+       limit: 30,
+       ttl: 60_000,
+       getTracker: (req: Request) =>
+         (req.body as { From?: string } | undefined)?.From ?? req.ip ?? 'unknown',
+     },
+   })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Webhook para mensajes entrantes de WhatsApp',
-    description:
-      'Endpoint que recibe los mensajes enviados a tu número de WhatsApp desde Twilio',
-  })
-  @ApiBody({
-    description: 'Datos del webhook de Twilio',
-    type: WebhookMessageDto,
-    examples: {
-      'mensaje-texto': {
-        summary: 'Mensaje de texto',
-        value: {
-          MessageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-          AccountSid: 'Exmaple_AccountSid',
-          From: 'whatsapp:+1234567890',
-          To: 'whatsapp:+14155238886',
-          Body: 'Hola, este es un mensaje recibido',
-          NumMedia: 0,
-          SmsStatus: 'received',
-        },
-      },
-      'mensaje-con-media': {
-        summary: 'Mensaje con archivo multimedia',
-        value: {
-          MessageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-          AccountSid: 'Example_AccountSid',
-          From: 'whatsapp:+1234567890',
-          To: 'whatsapp:+14155238886',
-          Body: 'Aquí tienes una imagen',
-          NumMedia: 1,
-          MediaUrl0:
-            'https://api.twilio.com/2010-04-01/Accounts/.../Messages/.../Media/...',
-          MediaContentType0: 'image/jpeg',
-          SmsStatus: 'received',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description:
-      'Webhook aceptado. La respuesta al usuario se envía vía SDK (Messages API), no en el body HTTP.',
-  })
+   @ApiOperation({
+     summary: 'Webhook para mensajes entrantes de WhatsApp',
+     description:
+       'Endpoint que recibe los mensajes enviados a tu número de WhatsApp desde Twilio',
+   })
+   @ApiBody({
+     description: 'Datos del webhook de Twilio',
+     type: WebhookMessageDto,
+     examples: {
+       'mensaje-texto': {
+         summary: 'Mensaje de texto',
+         value: {
+           MessageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+           AccountSid: 'Exmaple_AccountSid',
+           From: 'whatsapp:+1234567890',
+           To: 'whatsapp:+14155238886',
+           Body: 'Hola, este es un mensaje recibido',
+           NumMedia: 0,
+           SmsStatus: 'received',
+         },
+       },
+       'mensaje-con-media': {
+         summary: 'Mensaje con archivo multimedia',
+         value: {
+           MessageSid: 'SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+           AccountSid: 'Example_AccountSid',
+           From: 'whatsapp:+1234567890',
+           To: 'whatsapp:+14155238886',
+           Body: 'Aquí tienes una imagen',
+           NumMedia: 1,
+           MediaUrl0:
+             'https://api.twilio.com/2010-04-01/Accounts/.../Messages/.../Media/...',
+           MediaContentType0: 'image/jpeg',
+           SmsStatus: 'received',
+         },
+       },
+     },
+   })
+   @ApiResponse({
+     status: 200,
+     description:
+       'Webhook aceptado. La respuesta al usuario se envía vía SDK (Messages API), no en el body HTTP.',
+   })*/
+  @Post('webhook/whatsapp')
   async receiveWhatsAppMessage(
-    @Body() webhookData: WebhookMessageDto,
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    const webhookData = req.body as WebhookMessageDto;
     this.logger.log('Webhook recibido de Twilio');
     this.logger.log(
       `Solicitud Twilio recibida: MessageSid=${webhookData.MessageSid}, From=${webhookData.From}, To=${webhookData.To}, bodyLength=${webhookData.Body?.length ?? 0}, NumMedia=${webhookData.NumMedia ?? 'n/a'}`,
