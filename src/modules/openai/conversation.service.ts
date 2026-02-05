@@ -292,10 +292,18 @@ export class ConversationService {
     });
   }
 
-  async listConversationsByDoctorId(doctorId: string): Promise<Conversation[]> {
+  async listConversationsByDoctorId(
+    doctorId: string,
+  ): Promise<(Conversation & { messages: Message[] })[]> {
     return this.prisma.conversation.findMany({
       where: { doctorId },
       orderBy: { lastActivityAt: 'desc' },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
   }
 

@@ -143,8 +143,12 @@ export class ConversationsController {
     return id;
   }
 
-  private toConversationDto(conversation: Conversation): ConversationResponseDto {
+  private toConversationDto(
+    conversation: Conversation & { messages?: Message[] },
+  ): ConversationResponseDto {
     const title = this.deriveTitle(conversation);
+    const lastMessagePreview =
+      conversation.messages?.[0]?.content?.trim() || undefined;
     return {
       id: conversation.id,
       model: conversation.model,
@@ -157,6 +161,7 @@ export class ConversationsController {
       updatedAt: conversation.updatedAt,
       contextMessageLimit: conversation.contextMessageLimit ?? undefined,
       title,
+      lastMessagePreview,
     };
   }
 

@@ -63,5 +63,12 @@ export class ConversationResponseDto {
     required: false,
   })
   title?: string;
+
+  @ApiProperty({
+    description: 'Texto del último mensaje para preview en lista',
+    example: 'Gracias, ya quedó claro',
+    required: false,
+  })
+  lastMessagePreview?: string;
 }
 

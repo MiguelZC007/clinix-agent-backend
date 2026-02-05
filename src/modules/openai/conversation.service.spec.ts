@@ -29,6 +29,7 @@ describe('ConversationService', () => {
     conversation: {
       findFirst: jest.Mock;
       findUnique: jest.Mock;
+      findMany: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
       updateMany: jest.Mock;
@@ -78,6 +79,7 @@ describe('ConversationService', () => {
       conversation: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -146,6 +148,51 @@ describe('ConversationService', () => {
       const result = await service.findDoctorByPhone('+584241234567');
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('listConversationsByDoctorId', () => {
+    it('debe listar conversaciones con el último mensaje incluido', async () => {
+      const convWithMessage = {
+        ...mockConversation,
+        messages: [
+          {
+            id: 'msg-1',
+            content: 'Último mensaje',
+            role: 'user',
+            tokenCount: 2,
+            readAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            conversationId: mockConversation.id,
+          },
+        ],
+      };
+      mockPrisma.conversation.findMany.mockResolvedValue([convWithMessage]);
+
+      const result = await service.listConversationsByDoctorId('doctor-uuid');
+
+      expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith({
+        where: { doctorId: 'doctor-uuid' },
+        orderBy: { lastActivityAt: 'desc' },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].messages).toHaveLength(1);
+      expect(result[0].messages[0].content).toBe('Último mensaje');
+    });
+
+    it('debe devolver array vacío cuando no hay conversaciones', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([]);
+
+      const result = await service.listConversationsByDoctorId('doctor-uuid');
+
+      expect(result).toEqual([]);
     });
   });
 
