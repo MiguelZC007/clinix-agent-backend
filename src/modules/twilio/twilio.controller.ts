@@ -154,7 +154,10 @@ export class TwilioController {
     @Res() res: Response,
   ) {
     this.logger.log('Webhook recibido de Twilio');
-    this.logger.debug(
+    this.logger.log(
+      `Solicitud Twilio recibida: MessageSid=${webhookData.MessageSid}, From=${webhookData.From}, To=${webhookData.To}, bodyLength=${webhookData.Body?.length ?? 0}, NumMedia=${webhookData.NumMedia ?? 'n/a'}`,
+    );
+    this.logger.log(
       'Datos del webhook:',
       JSON.stringify(webhookData, null, 2),
     );

@@ -82,6 +82,7 @@ export class ReplyMessageHandler {
     }
 
     const messageParts = this.twilioService.splitMessage(assistantResponse);
+    const sentMessageSids: (string | null)[] = [];
 
     for (let i = 0; i < messageParts.length; i++) {
       const result = await this.twilioService.sendReply(
@@ -89,6 +90,7 @@ export class ReplyMessageHandler {
         phoneNumber,
         messageParts[i],
       );
+      sentMessageSids.push(result.messageSid ?? null);
       this.logger.log(
         `Parte enviada: índice=${i + 1}/${messageParts.length}, messageSid=${result.messageSid ?? 'n/a'}`,
       );
@@ -98,6 +100,9 @@ export class ReplyMessageHandler {
       }
     }
 
+    this.logger.log(
+      `Respuesta enviada por Twilio: ${messageParts.length} parte(s), messageSids: [${sentMessageSids.map((s) => s ?? 'n/a').join(', ')}], totalCaracteres: ${assistantResponse.length}`,
+    );
     this.logger.log('=====================================');
 
     return {
