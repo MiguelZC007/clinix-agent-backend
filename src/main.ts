@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.set('trust proxy', 1);
 
   app.setGlobalPrefix('v1');
 

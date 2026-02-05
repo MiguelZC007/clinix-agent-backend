@@ -21,9 +21,11 @@ export class TwilioWebhookGuard implements CanActivate {
       throw new ForbiddenException('twilio-webhook-validation-unavailable');
     }
     const signature = request.header('X-Twilio-Signature') ?? '';
-    const protocol = request.protocol;
-    const host = request.get('host') ?? '';
-    const webhookUrl = `${protocol}://${host}${request.originalUrl}`;
+    const proto = (request.get('x-forwarded-proto') ?? request.protocol ?? 'https')
+      .split(',')[0]
+      .trim();
+    const host = request.get('x-forwarded-host') ?? request.get('host') ?? '';
+    const webhookUrl = `${proto}://${host}${request.originalUrl}`;
     const params = (request.body as Record<string, string>) ?? {};
     const isValid = twilio.validateRequest(
       authToken,
@@ -32,7 +34,13 @@ export class TwilioWebhookGuard implements CanActivate {
       params,
     );
     if (!isValid) {
-      this.logger.warn('Firma de webhook Twilio inválida');
+      this.logger.warn('Firma de webhook Twilio inválida', {
+        webhookUrl,
+        xForwardedProto: request.get('x-forwarded-proto'),
+        host: request.get('host'),
+        xForwardedHost: request.get('x-forwarded-host'),
+        originalUrl: request.originalUrl,
+      });
       throw new ForbiddenException('twilio-webhook-signature-invalid');
     }
     return true;
