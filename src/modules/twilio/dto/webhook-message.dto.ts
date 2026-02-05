@@ -1,5 +1,11 @@
-import { IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+function toNumMedia(value: unknown): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  return Number(value);
+}
 
 export class WebhookMessageDto {
   @ApiProperty({
@@ -42,7 +48,9 @@ export class WebhookMessageDto {
     example: 0,
   })
   @IsOptional()
-  @IsNumber()
+  @Transform(({ value }) => toNumMedia(value))
+  @IsInt()
+  @Min(0)
   NumMedia?: number;
 
   @ApiPropertyOptional({

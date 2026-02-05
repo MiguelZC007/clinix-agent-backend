@@ -1,8 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ResponseInterceptor } from 'src/core/interceptors/response.interceptor';
+import { AllExceptionsFilter } from 'src/core/filters/all-exceptions.filter';
+import { HttpExceptionFilter } from 'src/core/filters/http-exception.filter';
+import { PrismaExceptionFilter } from 'src/core/filters/prisma-exception.filter';
+import { TwilioWebhookGuard } from 'src/modules/twilio/guards/twilio-webhook.guard';
 
 describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
   let app: INestApplication;
@@ -17,9 +22,26 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(TwilioWebhookGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('v1');
+    app.useGlobalInterceptors(new ResponseInterceptor());
+    app.useGlobalFilters(
+      new AllExceptionsFilter(),
+      new PrismaExceptionFilter(),
+      new HttpExceptionFilter(),
+    );
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
     await app.init();
 
     prisma = moduleFixture.get<PrismaService>(PrismaService);
@@ -140,7 +162,7 @@ describe('Twilio Webhook - Flujo Real de Anamnesis (e2e)', () => {
       typeof request
     >[0];
     const response = await request(server)
-      .post('/twilio/webhook/whatsapp')
+      .post('/v1/twilio/webhook/whatsapp')
       .send(payload)
       .expect(200);
 
