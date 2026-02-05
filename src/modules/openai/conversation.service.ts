@@ -16,9 +16,9 @@ interface ConversationContext {
 }
 
 const SESSION_TIMEOUT_MINUTES = 30;
-const MAX_RECENT_MESSAGES = 10;
 const MESSAGES_THRESHOLD_FOR_SUMMARY = 15;
 const MESSAGES_TO_SUMMARIZE = 5;
+const CONTEXT_TOKEN_LIMIT = 120_000;
 
 @Injectable()
 export class ConversationService {
@@ -138,26 +138,66 @@ export class ConversationService {
   private buildContextMessages(
     conversation: Conversation & { messages: Message[] },
   ): ConversationMessage[] {
-    const messages: ConversationMessage[] = [];
-
-    if (conversation.summary) {
-      messages.push({
-        role: 'system',
-        content: `Resumen de la conversación anterior:\n${conversation.summary}`,
-      });
+    const systemTokens = this.estimateTokenCount(conversation.systemPrompt);
+    const summaryContent = conversation.summary
+      ? `Resumen de la conversación anterior:\n${conversation.summary}`
+      : null;
+    const summaryTokens = summaryContent
+      ? this.estimateTokenCount(summaryContent)
+      : 0;
+    const budget = CONTEXT_TOKEN_LIMIT - systemTokens - summaryTokens;
+    if (budget <= 0) {
+      return [];
     }
-
-    const limit = conversation.contextMessageLimit ?? MAX_RECENT_MESSAGES;
-    const recentMessages = conversation.messages.slice(-limit);
-
-    for (const msg of recentMessages) {
+    const selected: Message[] = [];
+    let used = 0;
+    for (let i = conversation.messages.length - 1; i >= 0; i--) {
+      const msg = conversation.messages[i];
+      if (used + msg.tokenCount > budget) break;
+      selected.unshift(msg);
+      used += msg.tokenCount;
+    }
+    const messages: ConversationMessage[] = [];
+    if (summaryContent) {
+      messages.push({ role: 'system', content: summaryContent });
+    }
+    for (const msg of selected) {
       messages.push({
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
       });
     }
-
     return messages;
+  }
+
+  getContextTokenLimit(): number {
+    return CONTEXT_TOKEN_LIMIT;
+  }
+
+  computeContextTokenUsage(
+    conversation: Conversation & { messages: Message[] },
+  ): { contextTokensUsed: number; contextTokenLimit: number } {
+    const systemTokens = this.estimateTokenCount(conversation.systemPrompt);
+    const summaryContent = conversation.summary
+      ? `Resumen de la conversación anterior:\n${conversation.summary}`
+      : null;
+    const summaryTokens = summaryContent
+      ? this.estimateTokenCount(summaryContent)
+      : 0;
+    const budget = CONTEXT_TOKEN_LIMIT - systemTokens - summaryTokens;
+    let used = 0;
+    if (budget > 0) {
+      for (let i = conversation.messages.length - 1; i >= 0; i--) {
+        const msg = conversation.messages[i];
+        if (used + msg.tokenCount > budget) break;
+        used += msg.tokenCount;
+      }
+    }
+    const contextTokensUsed = systemTokens + summaryTokens + used;
+    return {
+      contextTokensUsed,
+      contextTokenLimit: CONTEXT_TOKEN_LIMIT,
+    };
   }
 
   async addMessage(
@@ -355,6 +395,18 @@ export class ConversationService {
     });
   }
 
+  async getContextTokenUsage(
+    conversationId: string,
+    doctorId: string,
+  ): Promise<{ contextTokensUsed: number; contextTokenLimit: number }> {
+    const conversation =
+      await this.getConversationWithMessagesForDoctor(conversationId, doctorId);
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+    return this.computeContextTokenUsage(conversation);
+  }
+
   async getContextForConversation(
     conversationId: string,
     doctorId: string,
@@ -370,7 +422,7 @@ export class ConversationService {
   async updateConversation(
     conversationId: string,
     doctorId: string,
-    data: { contextMessageLimit?: number },
+    _data: Record<string, never>,
   ): Promise<Conversation> {
     const conversation = await this.getConversationByIdForDoctor(
       conversationId,
@@ -379,14 +431,7 @@ export class ConversationService {
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        ...(data.contextMessageLimit !== undefined && {
-          contextMessageLimit: data.contextMessageLimit,
-        }),
-      },
-    });
+    return conversation;
   }
 
   async listMessagesByConversationId(conversationId: string): Promise<Message[]> {

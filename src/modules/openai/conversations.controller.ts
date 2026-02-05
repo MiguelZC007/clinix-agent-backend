@@ -42,7 +42,14 @@ export class ConversationsController {
     const doctorId = this.getDoctorId(user);
     const conversations =
       await this.conversationService.listConversationsByDoctorId(doctorId);
-    return conversations.map((c) => this.toConversationDto(c));
+    const contextTokenLimit =
+      this.conversationService.getContextTokenLimit();
+    return conversations.map((c) =>
+      this.toConversationDto(c, {
+        contextTokensUsed: 0,
+        contextTokenLimit,
+      }),
+    );
   }
 
   @Post()
@@ -57,7 +64,12 @@ export class ConversationsController {
     const systemPrompt = this.openaiService.getSystemPrompt();
     const conversation =
       await this.conversationService.startNewConversation(doctorId, systemPrompt);
-    return this.toConversationDto(conversation);
+    const contextTokenLimit =
+      this.conversationService.getContextTokenLimit();
+    return this.toConversationDto(conversation, {
+      contextTokensUsed: 0,
+      contextTokenLimit,
+    });
   }
 
   @Get(':id/messages')
@@ -86,6 +98,39 @@ export class ConversationsController {
     return messages.map((m) => this.toMessageDto(m));
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Obtener una conversación por ID con uso de contexto' })
+  @ApiParam({ name: 'id', description: 'ID de la conversación (UUID)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Conversación con contextTokensUsed y contextTokenLimit',
+    type: ConversationResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Conversación no encontrada' })
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @User() user: unknown,
+  ): Promise<ConversationResponseDto> {
+    const doctorId = this.getDoctorId(user);
+    const usage = await this.conversationService.getContextTokenUsage(
+      id,
+      doctorId,
+    );
+    const conversation =
+      await this.conversationService.getConversationWithMessagesForDoctor(
+        id,
+        doctorId,
+      );
+    if (!conversation) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+    const withPreview = {
+      ...conversation,
+      messages: conversation.messages.slice(-1).reverse(),
+    };
+    return this.toConversationDto(withPreview, usage);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar configuración de una conversación' })
   @ApiParam({ name: 'id', description: 'ID de la conversación (UUID)' })
@@ -104,9 +149,14 @@ export class ConversationsController {
     const conversation = await this.conversationService.updateConversation(
       id,
       doctorId,
-      { contextMessageLimit: dto.contextMessageLimit },
+      {} as Record<string, never>,
     );
-    return this.toConversationDto(conversation);
+    const contextTokenLimit =
+      this.conversationService.getContextTokenLimit();
+    return this.toConversationDto(conversation, {
+      contextTokensUsed: 0,
+      contextTokenLimit,
+    });
   }
 
   @Put(':id/read')
@@ -145,6 +195,10 @@ export class ConversationsController {
 
   private toConversationDto(
     conversation: Conversation & { messages?: Message[] },
+    tokenUsage: {
+      contextTokensUsed: number;
+      contextTokenLimit: number;
+    },
   ): ConversationResponseDto {
     const title = this.deriveTitle(conversation);
     const lastMessagePreview =
@@ -159,7 +213,8 @@ export class ConversationsController {
       doctorId: conversation.doctorId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-      contextMessageLimit: conversation.contextMessageLimit ?? undefined,
+      contextTokensUsed: tokenUsage.contextTokensUsed,
+      contextTokenLimit: tokenUsage.contextTokenLimit,
       title,
       lastMessagePreview,
     };

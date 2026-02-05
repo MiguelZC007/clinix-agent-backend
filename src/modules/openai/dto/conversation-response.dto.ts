@@ -51,11 +51,16 @@ export class ConversationResponseDto {
   updatedAt: Date;
 
   @ApiProperty({
-    description: 'Límite de mensajes recientes en el contexto del agente',
-    example: 10,
-    required: false,
+    description: 'Tokens de contexto consumidos (system + resumen + mensajes)',
+    example: 1500,
   })
-  contextMessageLimit?: number;
+  contextTokensUsed: number;
+
+  @ApiProperty({
+    description: 'Límite de tokens de contexto del modelo',
+    example: 120000,
+  })
+  contextTokenLimit: number;
 
   @ApiProperty({
     description: 'Título sugerido para la UI (derivado de resumen o fecha)',

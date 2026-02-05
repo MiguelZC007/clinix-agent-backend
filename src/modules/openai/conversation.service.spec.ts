@@ -482,7 +482,7 @@ describe('ConversationService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('retorna contexto con resumen y últimos N mensajes según contextMessageLimit', async () => {
+    it('retorna contexto con resumen y últimos mensajes que caben en el límite de tokens', async () => {
       const messages = [
         {
           id: 'msg-1',
@@ -508,7 +508,6 @@ describe('ConversationService', () => {
       const convWithMessages = {
         ...mockConversation,
         summary: 'Resumen previo',
-        contextMessageLimit: 5,
         messages,
       };
       mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
@@ -530,17 +529,62 @@ describe('ConversationService', () => {
     });
   });
 
-  describe('Ventana deslizante de mensajes', () => {
-    it('debe retornar solo los últimos 10 mensajes', async () => {
+  describe('getContextTokenUsage', () => {
+    it('lanza NotFound si la conversación no existe', async () => {
+      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getContextTokenUsage('conv-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('retorna contextTokensUsed y contextTokenLimit', async () => {
+      const messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'Hola',
+          tokenCount: 10,
+          readAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          conversationId: 'conv-uuid',
+        },
+      ];
+      const convWithMessages = {
+        ...mockConversation,
+        systemPrompt: 'System',
+        messages,
+      };
+      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
+
+      const result = await service.getContextTokenUsage(
+        'conv-uuid',
+        'doctor-uuid',
+      );
+
+      expect(result.contextTokenLimit).toBe(120_000);
+      expect(result.contextTokensUsed).toBeGreaterThanOrEqual(10);
+      expect(result.contextTokensUsed).toBeLessThanOrEqual(120_000);
+    });
+  });
+
+  describe('Ventana de contexto por tokens', () => {
+    it('debe retornar solo los mensajes que caben en el presupuesto de tokens', async () => {
       const manyMessages = Array.from({ length: 15 }, (_, i) => ({
         id: `msg-${i}`,
         role: i % 2 === 0 ? 'user' : 'assistant',
         content: `Mensaje ${i}`,
+        tokenCount: 10_000,
+        readAt: null,
         createdAt: new Date(Date.now() + i * 1000),
+        updatedAt: new Date(),
+        conversationId: 'conversation-uuid',
       }));
 
       const conversationWithManyMessages = {
         ...mockConversation,
+        systemPrompt: 'System prompt',
         messages: manyMessages,
       };
 
@@ -556,37 +600,10 @@ describe('ConversationService', () => {
         'System prompt',
       );
 
-      expect(result.messages.length).toBeLessThanOrEqual(10);
-    });
-
-    it('debe respetar contextMessageLimit cuando está definido', async () => {
-      const manyMessages = Array.from({ length: 15 }, (_, i) => ({
-        id: `msg-${i}`,
-        role: i % 2 === 0 ? 'user' : 'assistant',
-        content: `Mensaje ${i}`,
-        tokenCount: 1,
-        readAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        conversationId: 'conversation-uuid',
-      }));
-      const conversationWithLimit = {
-        ...mockConversation,
-        contextMessageLimit: 3,
-        messages: manyMessages,
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(conversationWithLimit);
-      mockPrisma.conversation.update.mockResolvedValue(conversationWithLimit);
-
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
       const recentOnly = result.messages.filter(
         (m) => m.role === 'user' || m.role === 'assistant',
       );
-      expect(recentOnly.length).toBe(3);
+      expect(recentOnly.length).toBe(11);
     });
   });
 });
