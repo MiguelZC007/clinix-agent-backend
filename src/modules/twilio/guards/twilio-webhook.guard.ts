@@ -15,6 +15,9 @@ export class TwilioWebhookGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
+    this.logger.log(
+      `Validando webhook: url=${request.originalUrl} signature=${request.header('X-Twilio-Signature') ? 'presente' : 'ausente'}`,
+    );
     const authToken = environment.TWILIO_AUTH_TOKEN;
     if (!authToken) {
       this.logger.error('TWILIO_AUTH_TOKEN no configurado para validar webhook');
@@ -43,6 +46,10 @@ export class TwilioWebhookGuard implements CanActivate {
       });
       throw new ForbiddenException('twilio-webhook-signature-invalid');
     }
+    const bodyKeys = Object.keys(params);
+    this.logger.log(
+      `Webhook body keys: ${bodyKeys.join(', ')} | MessageSid=${params.MessageSid ?? 'n/a'} From=${params.From ?? 'n/a'}`,
+    );
     return true;
   }
 }

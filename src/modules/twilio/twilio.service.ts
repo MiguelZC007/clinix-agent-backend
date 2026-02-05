@@ -94,6 +94,17 @@ export class TwilioService {
         `Error procesando mensaje entrante: ${this.getErrorMessage(error)}`,
         this.getErrorStack(error),
       );
+      try {
+        await this.sendReply(
+          webhookData.To,
+          webhookData.From,
+          'Lo sentimos, ocurrió un error procesando tu mensaje. Intenta de nuevo en un momento.',
+        );
+      } catch (sendError) {
+        this.logger.warn(
+          `No se pudo enviar mensaje de fallback al usuario: ${this.getErrorMessage(sendError)}`,
+        );
+      }
       throw new BadRequestException('twilio-incoming-process-failed');
     }
   }

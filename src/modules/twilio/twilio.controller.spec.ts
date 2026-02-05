@@ -77,7 +77,6 @@ describe('TwilioController', () => {
         Body: 'Hola',
       };
 
-      const mockRequest = { body: webhookData } as Request;
       const mockEnd = jest.fn();
       type MockResponse = {
         status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
@@ -99,7 +98,6 @@ describe('TwilioController', () => {
 
       await controller.receiveWhatsAppMessage(
         webhookData,
-        mockRequest,
         mockResponse as unknown as Response,
       );
 
@@ -109,8 +107,13 @@ describe('TwilioController', () => {
     });
 
     it('debe propagar errores del webhook al filtro global', async () => {
-      const webhookData = {};
-      const mockRequest = { body: webhookData } as Request;
+      const webhookData = {
+        MessageSid: 'SM123',
+        AccountSid: 'AC123',
+        From: 'whatsapp:+584241234567',
+        To: 'whatsapp:+14155238886',
+        Body: 'Hola',
+      };
       const mockEnd = jest.fn();
       type MockResponse = {
         status: jest.MockedFunction<(this: void, code: number) => MockResponse>;
@@ -129,7 +132,6 @@ describe('TwilioController', () => {
       await expect(
         controller.receiveWhatsAppMessage(
           webhookData,
-          mockRequest,
           mockResponse as unknown as Response,
         ),
       ).rejects.toThrow('Test error');

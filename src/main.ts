@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
+import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './core/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
@@ -10,9 +11,21 @@ import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  //app.set('trust proxy', 1);
+  app.set('trust proxy', 1);
 
   app.setGlobalPrefix('v1');
+
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (
+      req.method === 'POST' &&
+      req.originalUrl?.includes('twilio/webhook/whatsapp')
+    ) {
+      console.log(
+        `[Webhook] POST recibido: ${req.originalUrl} | host=${req.get('host')} | x-forwarded-host=${req.get('x-forwarded-host')} | x-forwarded-proto=${req.get('x-forwarded-proto')}`,
+      );
+    }
+    next();
+  });
 
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(

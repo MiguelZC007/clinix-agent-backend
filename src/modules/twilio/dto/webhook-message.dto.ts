@@ -4,7 +4,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 function toNumMedia(value: unknown): number | undefined {
   if (value === undefined || value === '') return undefined;
-  return Number(value);
+  const n = Number(value);
+  if (Number.isNaN(n) || !Number.isInteger(n) || n < 0) return undefined;
+  return n;
 }
 
 export class WebhookMessageDto {
@@ -36,12 +38,13 @@ export class WebhookMessageDto {
   @IsString()
   To: string;
 
-  @ApiProperty({
-    description: 'Contenido del mensaje',
+  @ApiPropertyOptional({
+    description: 'Contenido del mensaje (puede faltar en mensajes solo con media)',
     example: 'Hola, este es un mensaje recibido',
   })
+  @IsOptional()
   @IsString()
-  Body: string;
+  Body?: string;
 
   @ApiPropertyOptional({
     description: 'Número de archivos multimedia adjuntos',
@@ -85,4 +88,64 @@ export class WebhookMessageDto {
   @IsOptional()
   @IsString()
   Timestamp?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  SmsMessageSid?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ProfileName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  MessageType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  SmsSid?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  WaId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  MessagingServiceSid?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  NumSegments?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ReferralNumMedia?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ChannelMetadata?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ApiVersion?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ErrorUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ErrorCode?: string;
 }

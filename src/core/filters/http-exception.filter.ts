@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
@@ -16,6 +17,8 @@ import {
 
 @Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: HttpException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -27,6 +30,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof BadRequestException) {
       const code = ErrorCode.VALIDATION_ERROR;
       const validationErrors = this.extractValidationErrors(exceptionResponse);
+      if (validationErrors.length > 0) {
+        this.logger.warn(
+          `Validación fallida: ${JSON.stringify(validationErrors)} | response=${JSON.stringify(exceptionResponse)}`,
+        );
+      }
       const errorInfo = this.getErrorInfoFromCode(code);
 
       problemDetails = new ProblemDetailsDto({

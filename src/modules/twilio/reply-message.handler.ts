@@ -49,12 +49,12 @@ export class ReplyMessageHandler {
       webhookData.From,
     );
 
+    const userMessage = webhookData.Body ?? '';
     this.logger.log('=== MENSAJE RECIBIDO DE WHATSAPP ===');
     this.logger.log(`De: ${webhookData.From}`);
-    this.logger.log(`Mensaje: ${webhookData.Body}`);
+    this.logger.log(`Mensaje: ${userMessage || '(vacío o solo media)'}`);
 
     const phoneNumber = webhookData.From;
-    const userMessage = webhookData.Body;
     const replyFromNumber = webhookData.To;
 
     let assistantResponse: string;

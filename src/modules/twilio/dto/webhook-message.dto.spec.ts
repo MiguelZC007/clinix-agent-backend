@@ -43,17 +43,19 @@ describe('WebhookMessageDto', () => {
     expect(dto.NumMedia).toBe(0);
   });
 
-  it('debe fallar validación cuando NumMedia no es entero válido', async () => {
+  it('debe normalizar NumMedia no entero a undefined y pasar validación', async () => {
     const payload = { ...validBase, NumMedia: 'abc' };
     const dto = plainToInstance(WebhookMessageDto, payload);
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'NumMedia')).toBe(true);
+    expect(errors.length).toBe(0);
+    expect(dto.NumMedia).toBeUndefined();
   });
 
-  it('debe fallar validación cuando NumMedia es negativo', async () => {
+  it('debe normalizar NumMedia negativo a undefined y pasar validación', async () => {
     const payload = { ...validBase, NumMedia: '-1' };
     const dto = plainToInstance(WebhookMessageDto, payload);
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'NumMedia')).toBe(true);
+    expect(errors.length).toBe(0);
+    expect(dto.NumMedia).toBeUndefined();
   });
 });
