@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -8,7 +9,7 @@ import { PrismaExceptionFilter } from './core/filters/prisma-exception.filter';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.set('trust proxy', 1);
 
   app.setGlobalPrefix('v1');
