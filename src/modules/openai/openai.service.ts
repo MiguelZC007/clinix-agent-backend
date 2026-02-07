@@ -63,8 +63,19 @@ const patientTools: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_all_patients',
-      description: 'Retrieve a list of all registered patients',
-      parameters: { type: 'object', properties: {}, required: [] },
+      description:
+        'Busca pacientes del doctor por nombre o apellido. Recibe un texto (query) y devuelve las coincidencias. Sin query o query vacío devuelve lista vacía. NUNCA muestres UUIDs al médico; usa el id solo para llamadas internas (create_appointment, get_patient, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'Texto para buscar por nombre o apellido del paciente. Si no se envía o está vacío, se devuelve lista vacía.',
+          },
+        },
+        required: [],
+      },
     },
   },
   {
@@ -221,7 +232,7 @@ const buscadorTools: ChatCompletionTool[] = [
     function: {
       name: 'search_patients',
       description:
-        'Busca pacientes del doctor por nombre o apellido. Devuelve id, nombre y apellido. Usa el id cuando el médico elija un paciente por nombre; NUNCA muestres el id al médico.',
+        'Busca pacientes del doctor por nombre o apellido. Devuelve id, patientNumber (número único), nombre y apellido. Presenta al médico por nombre o por número (ej. "1. Pedro González"). Para create_appointment usa el id (UUID) de la fila elegida; si envías patientNumber también se acepta.',
       parameters: {
         type: 'object',
         properties: {
@@ -249,12 +260,13 @@ const appointmentTools: ChatCompletionTool[] = [
         properties: {
           patientId: {
             type: 'string',
-            description: 'The unique identifier (UUID) of the patient',
+            description:
+              'The "id" (UUID) or "patientNumber" (numeric string, e.g. "1") from search_patients/get_all_patients. Use the id of the row the doctor selected; if you send patientNumber it will be resolved to the patient UUID.',
           },
           specialtyId: {
             type: 'string',
             description:
-              'The unique identifier (UUID) of the medical specialty',
+              'The exact "id" (UUID string) from one of the objects returned by list_specialties. Never use the specialty name.',
           },
           startAppointment: {
             type: 'string',
@@ -601,6 +613,14 @@ const openaiTools: ChatCompletionTool[] = [
   ...clinicHistoryTools,
 ];
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUUID(s: string | null | undefined): boolean {
+  if (s == null || typeof s !== 'string') return false;
+  return UUID_REGEX.test(s.trim());
+}
+
 export interface DoctorContext {
   authToken: string;
   doctorId: string;
@@ -637,7 +657,8 @@ REGLAS ESTRICTAS:
 8. NUNCA muestres, confirmes ni escribas UUIDs ni identificadores de base de datos (ID de especialidad, paciente, cita, etc.) en ningún mensaje al médico. Ni siquiera al "confirmar" una elección: confirma solo por nombre (ej. "He confirmado la especialidad Cardiología" o "Paciente Juan Pérez confirmado"), nunca incluyas el ID.
 9. Para especialidad o paciente, usa primero list_specialties o search_patients. Presenta al médico solo nombres (ej. "Especialidades: 1. Cardiología, 2. Pediatría" o "Pacientes: Juan Pérez, María González").
 10. Cuando el médico elija por nombre o por número de opción, usa el id del resultado del tool en las llamadas que lo requieran (create_appointment con specialtyId y patientId, get_patient con patientId, etc.).
-11. Para crear una cita, si no conoces la especialidad o el paciente, llama a list_specialties y/o search_patients, presenta las opciones por nombre, y cuando el médico elija usa los ids correspondientes en create_appointment.`;
+11. Para crear una cita, si no conoces la especialidad o el paciente, llama a list_specialties y/o search_patients, presenta las opciones por nombre, y cuando el médico elija usa los ids correspondientes en create_appointment.
+12. create_appointment: patientId debe ser el "id" (UUID) de la fila elegida en search_patients/get_all_patients, o el "patientNumber" (ej. "1") de esa fila; specialtyId el "id" de list_specialties. Cada paciente tiene id y patientNumber (número único); presenta opciones como "1. Pedro González", "2. María López" y usa el id (o patientNumber) de la fila que el médico elija. NUNCA pases solo el nombre; usa el id o patientNumber del resultado del tool.`;
 
   private readonly openai: OpenAI;
 
@@ -784,6 +805,11 @@ REGLAS ESTRICTAS:
         toolCall.function.arguments,
       );
 
+      this.logger.debug(
+        `Tool call input: ${functionName}`,
+        this.sanitizeToolArgs(functionArgs),
+      );
+
       let content: string;
       try {
         const result = await this.executeToolFunction(
@@ -792,6 +818,10 @@ REGLAS ESTRICTAS:
           functionArgs,
         );
         content = JSON.stringify(result);
+        this.logger.debug(
+          `Tool call output: ${functionName} success`,
+          this.summarizeToolResult(result),
+        );
       } catch (exception) {
         const { error, message } = this.mapToolErrorToMessage(exception);
         content = JSON.stringify({
@@ -799,6 +829,10 @@ REGLAS ESTRICTAS:
           error,
           message,
         });
+        this.logger.debug(
+          `Tool call output: ${functionName} error`,
+          { error, message },
+        );
       }
 
       toolResults.push({
@@ -832,6 +866,37 @@ REGLAS ESTRICTAS:
     );
   }
 
+  private sanitizeToolArgs(args: Record<string, unknown>): Record<string, unknown> {
+    const sanitized = { ...args };
+    if ('password' in sanitized) {
+      sanitized.password = '[REDACTED]';
+    }
+    return sanitized;
+  }
+
+  private summarizeToolResult(result: unknown): string {
+    if (result === null || result === undefined) {
+      return 'null';
+    }
+    if (Array.isArray(result)) {
+      return `array(${result.length})`;
+    }
+    if (typeof result === 'object') {
+      const obj = result as Record<string, unknown>;
+      if ('id' in obj && typeof obj.id === 'string') {
+        return `object(id=${obj.id})`;
+      }
+      if ('success' in obj && obj.success === false && 'error' in obj) {
+        return `error(${String(obj.error)})`;
+      }
+      if ('formattedMessage' in obj) {
+        return 'formattedMessage';
+      }
+      return `object(${Object.keys(obj).length} keys)`;
+    }
+    return String(result);
+  }
+
   private safeParseJsonRecord(json: string): Record<string, unknown> {
     try {
       const parsed: unknown = JSON.parse(json);
@@ -851,6 +916,8 @@ REGLAS ESTRICTAS:
     const codeMap: Record<string, string> = {
       [ErrorCode.PATIENT_NOT_FOUND]:
         'El paciente no fue encontrado. Verifique que seleccionó un paciente de la lista.',
+      'patient-number-not-found':
+        'No se encontró un paciente con ese número. Verifique el número en la lista.',
       [ErrorCode.SPECIALTY_NOT_FOUND]:
         'La especialidad no fue encontrada. Verifique que seleccionó una especialidad de la lista.',
       'patient-not-owned-by-doctor':
@@ -864,6 +931,12 @@ REGLAS ESTRICTAS:
         'La cita ya está cancelada.',
       'appointment-cannot-cancel-completed':
         'No se puede cancelar una cita ya completada.',
+      'appointment-use-id-not-name':
+        'Use el id (UUID) del resultado de search_patients/get_all_patients y list_specialties, no el nombre. Llame a esas funciones y pase el campo "id" en create_appointment.',
+      'appointment-patient-ambiguous':
+        'Varios pacientes coinciden con ese nombre. Use search_patients y pase el id del paciente elegido.',
+      'appointment-specialty-ambiguous':
+        'Varias especialidades coinciden. Use list_specialties y pase el id de la especialidad elegida.',
       [ErrorCode.CONFLICT]: 'Conflicto con los datos. Intente de nuevo.',
       [ErrorCode.NOT_FOUND]: 'Recurso no encontrado.',
       [ErrorCode.BAD_REQUEST]: 'Datos inválidos. Verifique e intente de nuevo.',
@@ -873,10 +946,20 @@ REGLAS ESTRICTAS:
       const response = exception.getResponse();
       const code =
         typeof response === 'object' && response !== null && 'message' in response
-          ? String((response as { message: unknown }).message)
+          ? Array.isArray((response as { message: unknown }).message)
+            ? String((response as { message: unknown[] }).message[0])
+            : String((response as { message: unknown }).message)
           : String(response);
       const message = codeMap[code] ?? codeMap[ErrorCode.BAD_REQUEST];
       return { error: code, message };
+    }
+
+    const errMsg =
+      exception && typeof exception === 'object' && 'message' in exception
+        ? String((exception as Error).message)
+        : '';
+    if (errMsg && codeMap[errMsg]) {
+      return { error: errMsg, message: codeMap[errMsg] };
     }
 
     return {
@@ -926,13 +1009,112 @@ REGLAS ESTRICTAS:
     }
   }
 
+  private normalizeForNameMatch(s: string): string {
+    return s
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  private async resolvePatientIdByName(
+    doctorId: string,
+    nameInput: string,
+  ): Promise<string> {
+    if (nameInput == null || typeof nameInput !== 'string' || nameInput.trim() === '') {
+      throw new BadRequestException('appointment-use-id-not-name');
+    }
+    const doctorFilter = {
+      OR: [
+        { appointments: { some: { doctorId } } },
+        { registeredByDoctorId: doctorId },
+      ],
+    };
+    const patients = await this.prisma.patient.findMany({
+      where: doctorFilter,
+      include: { user: { select: { name: true, lastName: true } } },
+    });
+    const normalized = this.normalizeForNameMatch(nameInput);
+    const matches = patients.filter((p) => {
+      const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
+      const nameNorm = this.normalizeForNameMatch(p.user.name);
+      const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
+      return (
+        full === normalized ||
+        full.includes(normalized) ||
+        nameNorm.includes(normalized) ||
+        lastNameNorm.includes(normalized)
+      );
+    });
+    if (matches.length === 1) return matches[0].id;
+    if (matches.length === 0) {
+      throw new BadRequestException('appointment-use-id-not-name');
+    }
+    throw new BadRequestException('appointment-patient-ambiguous');
+  }
+
+  private async resolvePatientIdByNumber(
+    doctorId: string,
+    numberInput: string,
+  ): Promise<string | null> {
+    const n = Number.parseInt(numberInput.trim(), 10);
+    if (Number.isNaN(n) || n < 1) return null;
+    const doctorFilter = {
+      OR: [
+        { appointments: { some: { doctorId } } },
+        { registeredByDoctorId: doctorId },
+      ],
+    };
+    const patients = await this.prisma.patient.findMany({
+      where: { AND: [doctorFilter, { patientNumber: n }] },
+      select: { id: true },
+    });
+    if (patients.length === 1) return patients[0].id;
+    return null;
+  }
+
+  private async resolveSpecialtyIdByName(nameInput: string): Promise<string> {
+    if (nameInput == null || typeof nameInput !== 'string' || nameInput.trim() === '') {
+      throw new BadRequestException('appointment-use-id-not-name');
+    }
+    const specialties = await this.prisma.specialty.findMany({
+      where: {
+        name: {
+          equals: nameInput.trim(),
+          mode: 'insensitive',
+        },
+      },
+      select: { id: true },
+    });
+    if (specialties.length === 1) return specialties[0].id;
+    if (specialties.length === 0) {
+      const byContains = await this.prisma.specialty.findMany({
+        where: {
+          name: {
+            contains: nameInput.trim(),
+            mode: 'insensitive',
+          },
+        },
+        select: { id: true },
+      });
+      if (byContains.length === 1) return byContains[0].id;
+      throw new BadRequestException('appointment-use-id-not-name');
+    }
+    throw new BadRequestException('appointment-specialty-ambiguous');
+  }
+
   private async executeToolFunction(
     doctorId: string,
     functionName: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
     switch (functionName) {
-      case 'register_patient':
+      case 'register_patient': {
+        const maxResult = await this.prisma.patient.aggregate({
+          _max: { patientNumber: true },
+        });
+        const nextPatientNumber = (maxResult._max.patientNumber ?? 0) + 1;
         return this.prisma.user.create({
           data: {
             email: args.email as string,
@@ -943,6 +1125,7 @@ REGLAS ESTRICTAS:
             patient: {
               create: {
                 registeredByDoctorId: doctorId,
+                patientNumber: nextPatientNumber,
                 gender: args.gender as string | undefined,
                 birthDate: args.birthDate
                   ? new Date(args.birthDate as string)
@@ -956,6 +1139,7 @@ REGLAS ESTRICTAS:
           },
           include: { patient: true },
         });
+      }
 
       case 'list_specialties':
         return this.prisma.specialty.findMany({
@@ -973,57 +1157,72 @@ REGLAS ESTRICTAS:
             { registeredByDoctorId: doctorId },
           ],
         };
-        const nameFilter = searchTerm
-          ? {
-            OR: [
-              {
-                user: {
-                  name: {
-                    contains: searchTerm,
-                    mode: 'insensitive' as const,
-                  },
-                },
-              },
-              {
-                user: {
-                  lastName: {
-                    contains: searchTerm,
-                    mode: 'insensitive' as const,
-                  },
-                },
-              },
-            ],
-          }
-          : undefined;
-        const patients = await this.prisma.patient.findMany({
-          where: {
-            AND: [doctorFilter, ...(nameFilter ? [nameFilter] : [])],
-          },
+        let patients = await this.prisma.patient.findMany({
+          where: doctorFilter,
+          orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
             user: { select: { name: true, lastName: true } },
           },
         });
+        if (searchTerm) {
+          const normalized = this.normalizeForNameMatch(searchTerm);
+          patients = patients.filter((p) => {
+            const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
+            const nameNorm = this.normalizeForNameMatch(p.user.name);
+            const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
+            return (
+              full === normalized ||
+              full.includes(normalized) ||
+              nameNorm.includes(normalized) ||
+              lastNameNorm.includes(normalized)
+            );
+          });
+        }
         return patients.map((p) => ({
           id: p.id,
+          patientNumber: p.patientNumber,
           name: p.user.name,
           lastName: p.user.lastName,
         }));
       }
 
-      case 'get_all_patients':
-        return this.prisma.patient.findMany({
-          where: {
-            OR: [
-              { appointments: { some: { doctorId } } },
-              { registeredByDoctorId: doctorId },
-            ],
-          },
+      case 'get_all_patients': {
+        const query = args.query as string | undefined;
+        const searchTerm =
+          typeof query === 'string' && query.trim() !== '' ? query.trim() : null;
+        if (!searchTerm) {
+          return [];
+        }
+        const doctorFilter = {
+          OR: [
+            { appointments: { some: { doctorId } } },
+            { registeredByDoctorId: doctorId },
+          ],
+        };
+        let patients = await this.prisma.patient.findMany({
+          where: doctorFilter,
+          take: 200,
+          orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
             user: {
               select: { name: true, lastName: true, email: true, phone: true },
             },
           },
         });
+        const normalized = this.normalizeForNameMatch(searchTerm);
+        patients = patients.filter((p) => {
+          const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
+          const nameNorm = this.normalizeForNameMatch(p.user.name);
+          const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
+          return (
+            full === normalized ||
+            full.includes(normalized) ||
+            nameNorm.includes(normalized) ||
+            lastNameNorm.includes(normalized)
+          );
+        });
+        return patients.slice(0, 50);
+      }
 
       case 'get_patient': {
         const patient = await this.prisma.patient.findUnique({
@@ -1098,10 +1297,25 @@ REGLAS ESTRICTAS:
       }
 
       case 'create_appointment': {
-        const patientId = args.patientId as string;
-        const specialtyId = args.specialtyId as string;
+        let patientId = args.patientId as string;
+        let specialtyId = args.specialtyId as string;
         const startAppointment = new Date(args.startAppointment as string);
         const endAppointment = new Date(args.endAppointment as string);
+
+        if (!isUUID(patientId)) {
+          const numericOnly = /^\d+$/.test(String(patientId).trim());
+          const byNumber = await this.resolvePatientIdByNumber(doctorId, patientId);
+          if (byNumber) {
+            patientId = byNumber;
+          } else if (numericOnly) {
+            throw new BadRequestException('patient-number-not-found');
+          } else {
+            patientId = await this.resolvePatientIdByName(doctorId, patientId);
+          }
+        }
+        if (!isUUID(specialtyId)) {
+          specialtyId = await this.resolveSpecialtyIdByName(specialtyId);
+        }
 
         const patient = await this.prisma.patient.findUnique({
           where: { id: patientId },
