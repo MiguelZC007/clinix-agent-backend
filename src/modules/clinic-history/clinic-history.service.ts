@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
+import { CreateClinicHistoryWithoutAppointmentDto } from './dto/create-clinic-history-without-appointment.dto';
 import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import {
   ClinicHistoryResponseDto,
@@ -117,6 +118,133 @@ export class ClinicHistoryService {
     return this.mapToClinicHistoryResponse(clinicHistory);
   }
 
+  async createWithoutAppointment(
+    doctorId: string,
+    dto: CreateClinicHistoryWithoutAppointmentDto,
+  ): Promise<ClinicHistoryResponseDto> {
+    let resolvedPatientId: string;
+    let resolvedSpecialtyId: string;
+
+    const useNumbers =
+      typeof dto.patientNumber === 'number' &&
+      Number.isInteger(dto.patientNumber) &&
+      typeof dto.specialtyCode === 'number' &&
+      Number.isInteger(dto.specialtyCode);
+
+    let patient: { id: string };
+    let specialty: { id: string };
+
+    if (useNumbers) {
+      const patientByNumber = await this.prisma.patient.findUnique({
+        where: { patientNumber: dto.patientNumber },
+      });
+      if (!patientByNumber) {
+        throw new NotFoundException('patient-not-found');
+      }
+      const specialtyByCode = await this.prisma.specialty.findUnique({
+        where: { specialtyCode: dto.specialtyCode },
+      });
+      if (!specialtyByCode) {
+        throw new NotFoundException('specialty-not-found');
+      }
+      patient = patientByNumber;
+      specialty = specialtyByCode;
+      resolvedPatientId = patient.id;
+      resolvedSpecialtyId = specialty.id;
+    } else {
+      if (dto.patientId == null || dto.specialtyId == null) {
+        throw new NotFoundException('patient-not-found');
+      }
+      resolvedPatientId = dto.patientId;
+      resolvedSpecialtyId = dto.specialtyId;
+      const patientFound = await this.prisma.patient.findUnique({
+        where: { id: resolvedPatientId },
+      });
+      if (!patientFound) {
+        throw new NotFoundException('patient-not-found');
+      }
+      patient = patientFound;
+      const specialtyFound = await this.prisma.specialty.findUnique({
+        where: { id: resolvedSpecialtyId },
+      });
+      if (!specialtyFound) {
+        throw new NotFoundException('specialty-not-found');
+      }
+      specialty = specialtyFound;
+    }
+
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      include: { specialty: true },
+    });
+    if (!doctor) {
+      throw new NotFoundException('specialty-not-found');
+    }
+    const clinicHistory = await this.prisma.clinicHistory.create({
+      data: {
+        patientId: resolvedPatientId,
+        doctorId,
+        specialtyId: resolvedSpecialtyId,
+        appointmentId: null,
+        consultationReason: dto.consultationReason,
+        symptoms: dto.symptoms,
+        treatment: dto.treatment,
+        diagnostics: {
+          create: dto.diagnostics.map((d) => ({
+            name: d.name,
+            description: d.description,
+          })),
+        },
+        physicalExams: {
+          create: dto.physicalExams.map((p) => ({
+            name: p.name,
+            description: p.description,
+          })),
+        },
+        vitalSigns: {
+          create: dto.vitalSigns.map((v) => ({
+            name: v.name,
+            value: v.value,
+            unit: v.unit,
+            measurement: v.measurement,
+            description: v.description,
+          })),
+        },
+        prescription: dto.prescription
+          ? {
+              create: {
+                name: dto.prescription.name,
+                description: dto.prescription.description,
+                prescriptionMedications: {
+                  create: dto.prescription.medications.map((m) => ({
+                    name: m.name,
+                    quantity: m.quantity,
+                    unit: m.unit,
+                    frequency: m.frequency,
+                    duration: m.duration,
+                    indications: m.indications,
+                    administrationRoute: m.administrationRoute,
+                    description: m.description,
+                  })),
+                },
+              },
+            }
+          : undefined,
+      },
+      include: {
+        patient: { include: { user: true } },
+        doctor: { include: { user: true, specialty: true } },
+        diagnostics: true,
+        physicalExams: true,
+        vitalSigns: true,
+        prescription: {
+          include: { prescriptionMedications: true },
+        },
+      },
+    });
+    return this.mapToClinicHistoryResponse(clinicHistory);
+  }
+
   async findAll(
     query: FindAllClinicHistoriesQueryDto,
   ): Promise<ClinicHistoryListResultDto> {
@@ -208,7 +336,7 @@ export class ClinicHistoryService {
     patientId: string;
     doctorId: string;
     specialtyId: string;
-    appointmentId: string;
+    appointmentId: string | null;
     consultationReason: string;
     symptoms: string[];
     treatment: string;
@@ -216,12 +344,13 @@ export class ClinicHistoryService {
     updatedAt: Date;
     patient: {
       id: string;
+      patientNumber: number;
       user: { name: string; lastName: string };
     };
     doctor: {
       id: string;
       user: { name: string; lastName: string };
-      specialty: { name: string };
+      specialty: { name: string; specialtyCode: number };
     };
     diagnostics: Array<{
       id: string;
@@ -264,6 +393,7 @@ export class ClinicHistoryService {
   }): ClinicHistoryResponseDto {
     const patient: ClinicHistoryPatientDto = {
       id: clinicHistory.patient.id,
+      patientNumber: clinicHistory.patient.patientNumber,
       name: clinicHistory.patient.user.name,
       lastName: clinicHistory.patient.user.lastName,
     };
@@ -333,7 +463,8 @@ export class ClinicHistoryService {
       patientId: clinicHistory.patientId,
       doctorId: clinicHistory.doctorId,
       specialtyId: clinicHistory.specialtyId,
-      appointmentId: clinicHistory.appointmentId,
+      specialtyCode: clinicHistory.doctor.specialty.specialtyCode,
+      appointmentId: clinicHistory.appointmentId ?? null,
       consultationReason: clinicHistory.consultationReason,
       symptoms: clinicHistory.symptoms,
       treatment: clinicHistory.treatment,

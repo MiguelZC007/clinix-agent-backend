@@ -22,7 +22,7 @@ model User {
 
 model Patient {
   id                   String          @id @default(uuid())
-  patientNumber        Int             @default(autoincrement()) @unique
+  patientNumber        Int             @unique @default(autoincrement())
   userId               String          @unique
   user                 User            @relation(fields: [userId], references: [id])
   registeredByDoctorId String?
@@ -57,6 +57,7 @@ model Doctor {
 
 model Specialty {
   id              String          @id @default(uuid())
+  specialtyCode   Int             @unique @default(autoincrement())
   name            String
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
@@ -99,8 +100,8 @@ model ClinicHistory {
   specialtyId        String
   specialty          Specialty      @relation(fields: [specialtyId], references: [id])
   prescription       Prescription?
-  appointment        Appointment    @relation(fields: [appointmentId], references: [id])
-  appointmentId      String         @unique
+  appointment        Appointment?   @relation(fields: [appointmentId], references: [id])
+  appointmentId      String?        @unique
 }
 
 model Conversation {

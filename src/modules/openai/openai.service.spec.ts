@@ -20,7 +20,7 @@ jest.mock('src/core/config/environments', () => ({
 }));
 
 import { OpenaiService } from './openai.service';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, ConflictException } from '@nestjs/common';
 
 describe('OpenaiService', () => {
   let service: OpenaiService;
@@ -53,6 +53,10 @@ describe('OpenaiService', () => {
     addMessage: jest.Mock;
   };
   let mockAppointmentService: { findTodaysByDoctor: jest.Mock };
+  let mockClinicHistoryService: {
+    create: jest.Mock;
+    createWithoutAppointment: jest.Mock;
+  };
 
   const mockConversation = {
     id: 'conversation-uuid',
@@ -97,11 +101,16 @@ describe('OpenaiService', () => {
     mockAppointmentService = {
       findTodaysByDoctor: jest.fn().mockResolvedValue([]),
     };
+    mockClinicHistoryService = {
+      create: jest.fn(),
+      createWithoutAppointment: jest.fn(),
+    };
 
     service = new OpenaiService(
       mockPrisma as never,
       mockConversationService as never,
       mockAppointmentService as never,
+      mockClinicHistoryService as never,
     );
   });
 
@@ -325,7 +334,8 @@ describe('OpenaiService', () => {
       expect(mockPrisma.patient.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.any(Object),
-          take: 50,
+          take: 200,
+          orderBy: expect.any(Array),
           include: expect.any(Object),
         }),
       );
@@ -619,7 +629,7 @@ describe('OpenaiService', () => {
       );
 
       expect(mockPrisma.specialty.findMany).toHaveBeenCalledWith({
-        select: { id: true, name: true },
+        select: { id: true, name: true, specialtyCode: true },
         orderBy: { name: 'asc' },
       });
     });
@@ -681,17 +691,17 @@ describe('OpenaiService', () => {
       expect(mockPrisma.patient.findMany).toHaveBeenCalled();
       const findManyCall = mockPrisma.patient.findMany.mock
         .calls[0] as Array<unknown>;
-      const whereArg = (findManyCall[0] as { where?: unknown })?.where as {
-        AND?: Array<{ OR?: unknown[] }>;
-      };
+      const whereArg = (findManyCall[0] as { where?: { OR?: unknown[] } })?.where;
       expect(whereArg).toBeDefined();
-      expect(whereArg.AND).toBeDefined();
-      expect(Array.isArray(whereArg.AND)).toBe(true);
-      const doctorOr = whereArg.AND?.[0] as { OR?: Array<Record<string, unknown>> };
-      expect(doctorOr?.OR).toBeDefined();
-      expect(doctorOr?.OR).toHaveLength(2);
-      const hasAppointments = doctorOr?.OR?.some((o) => 'appointments' in o);
-      const hasRegisteredBy = doctorOr?.OR?.some((o) => 'registeredByDoctorId' in o);
+      expect(whereArg?.OR).toBeDefined();
+      expect(Array.isArray(whereArg?.OR)).toBe(true);
+      expect((whereArg?.OR ?? []).length).toBeGreaterThanOrEqual(2);
+      const hasAppointments = (whereArg?.OR ?? []).some(
+        (o) => o && typeof o === 'object' && 'appointments' in o,
+      );
+      const hasRegisteredBy = (whereArg?.OR ?? []).some(
+        (o) => o && typeof o === 'object' && 'registeredByDoctorId' in o,
+      );
       expect(hasAppointments).toBe(true);
       expect(hasRegisteredBy).toBe(true);
     });
@@ -1058,6 +1068,590 @@ describe('OpenaiService', () => {
       const toolMessage = messages?.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
       expect(content).toContain('appointment-use-id-not-name');
+    });
+  });
+
+  describe('create_clinic_history', () => {
+    const validCreateClinicHistoryArgs = {
+      appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+      consultationReason: 'Dolor de cabeza persistente desde hace 3 días',
+      symptoms: ['cefalea', 'mareos'],
+      treatment: 'Reposo, hidratación y paracetamol 500mg cada 8 horas.',
+      diagnostics: [
+        { name: 'Cefalea tensional', description: 'Cefalea de características tensionales' },
+      ],
+      physicalExams: [
+        { name: 'Examen neurológico', description: 'Sin focalidad' },
+      ],
+      vitalSigns: [
+        {
+          name: 'Presión arterial',
+          value: '120/80',
+          unit: 'mmHg',
+          measurement: 'brazo derecho',
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      mockConversationService.findDoctorByPhone.mockResolvedValue({
+        doctorId: 'doctor-uuid',
+        doctorName: 'Dr. Test',
+      });
+      mockConversationService.getOrCreateActiveConversation.mockResolvedValue({
+        conversation: mockConversation,
+        messages: [],
+      });
+      mockConversationService.addMessage.mockResolvedValue({ id: 'msg-1' });
+    });
+
+    it('crea historia clínica con todos los campos y llama a ClinicHistoryService', async () => {
+      mockPrisma.appointment.findUnique.mockResolvedValue({
+        id: validCreateClinicHistoryArgs.appointmentId,
+        patientId: 'patient-uuid',
+        doctorId: 'doctor-uuid',
+        specialtyId: 'specialty-uuid',
+      });
+      mockClinicHistoryService.create.mockResolvedValue({
+        id: 'history-uuid',
+        appointmentId: validCreateClinicHistoryArgs.appointmentId,
+        consultationReason: validCreateClinicHistoryArgs.consultationReason,
+      });
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(validCreateClinicHistoryArgs),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Historia clínica registrada correctamente.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra la historia clínica de la cita',
+      );
+
+      expect(mockPrisma.appointment.findUnique).toHaveBeenCalledWith({
+        where: { id: validCreateClinicHistoryArgs.appointmentId },
+      });
+      expect(mockClinicHistoryService.create).toHaveBeenCalledTimes(1);
+      const createArg = mockClinicHistoryService.create.mock.calls[0][0];
+      expect(createArg.appointmentId).toBe(validCreateClinicHistoryArgs.appointmentId);
+      expect(createArg.consultationReason).toBe(
+        validCreateClinicHistoryArgs.consultationReason,
+      );
+      expect(createArg.symptoms).toEqual(validCreateClinicHistoryArgs.symptoms);
+      expect(createArg.diagnostics).toHaveLength(1);
+      expect(createArg.physicalExams).toHaveLength(1);
+      expect(createArg.vitalSigns).toHaveLength(1);
+    });
+
+    it('lanza NotFoundException cuando la cita no existe', async () => {
+      mockPrisma.appointment.findUnique.mockResolvedValue(null);
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify({
+                        ...validCreateClinicHistoryArgs,
+                        appointmentId: '00000000-0000-0000-0000-000000000000',
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'La cita no fue encontrada.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia para cita inexistente',
+      );
+
+      expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
+        ?.messages ?? [];
+      const toolMessage = messages.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBe('appointment-not-found');
+    });
+
+    it('lanza ForbiddenException cuando la cita es de otro doctor', async () => {
+      mockPrisma.appointment.findUnique.mockResolvedValue({
+        id: validCreateClinicHistoryArgs.appointmentId,
+        patientId: 'patient-uuid',
+        doctorId: 'other-doctor-uuid',
+        specialtyId: 'specialty-uuid',
+      });
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(validCreateClinicHistoryArgs),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'No tiene acceso a esa cita.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia para cita de otro doctor',
+      );
+
+      expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
+        ?.messages ?? [];
+      const toolMessage = messages.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBe('appointment-not-owned-by-doctor');
+    });
+
+    it('propaga ConflictException cuando la cita ya tiene historia clínica', async () => {
+      mockPrisma.appointment.findUnique.mockResolvedValue({
+        id: validCreateClinicHistoryArgs.appointmentId,
+        patientId: 'patient-uuid',
+        doctorId: 'doctor-uuid',
+        specialtyId: 'specialty-uuid',
+      });
+      mockClinicHistoryService.create.mockRejectedValue(
+        new ConflictException('appointment-already-has-clinic-history'),
+      );
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(validCreateClinicHistoryArgs),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Esta cita ya tiene una historia clínica registrada.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia para cita que ya tiene historia',
+      );
+
+      expect(mockClinicHistoryService.create).toHaveBeenCalledTimes(1);
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
+        ?.messages ?? [];
+      const toolMessage = messages.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBe('appointment-already-has-clinic-history');
+    });
+
+    it('crea historia clínica sin cita cuando se envían patientId y specialtyId', async () => {
+      const argsWithoutAppointment = {
+        patientId: '550e8400-e29b-41d4-a716-446655440001',
+        specialtyId: '550e8400-e29b-41d4-a716-446655440002',
+        consultationReason:
+          'Dolor de cabeza persistente desde hace 3 días',
+        symptoms: ['cefalea', 'mareos'],
+        treatment: 'Reposo, hidratación y paracetamol 500mg cada 8 horas.',
+        diagnostics: [
+          {
+            name: 'Cefalea tensional',
+            description: 'Cefalea de características tensionales',
+          },
+        ],
+        physicalExams: [
+          { name: 'Examen neurológico', description: 'Sin focalidad' },
+        ],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'brazo derecho',
+          },
+        ],
+      };
+      mockClinicHistoryService.createWithoutAppointment.mockResolvedValue({
+        id: 'history-uuid',
+        consultationReason: argsWithoutAppointment.consultationReason,
+      });
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(argsWithoutAppointment),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Historia clínica registrada correctamente.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia clínica para el paciente sin cita',
+      );
+
+      expect(mockPrisma.appointment.findUnique).not.toHaveBeenCalled();
+      expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
+      expect(
+        mockClinicHistoryService.createWithoutAppointment,
+      ).toHaveBeenCalledTimes(1);
+      const [doctorId, dto] =
+        mockClinicHistoryService.createWithoutAppointment.mock.calls[0];
+      expect(doctorId).toBe('doctor-uuid');
+      expect(dto.patientId).toBe(argsWithoutAppointment.patientId);
+      expect(dto.specialtyId).toBe(argsWithoutAppointment.specialtyId);
+      expect(dto.consultationReason).toBe(argsWithoutAppointment.consultationReason);
+      expect(dto.symptoms).toEqual(argsWithoutAppointment.symptoms);
+    });
+
+    it('crea historia clínica sin cita cuando se envían patientNumber y specialtyCode', async () => {
+      const argsWithNumbers = {
+        patientNumber: 1,
+        specialtyCode: 2,
+        consultationReason:
+          'Dolor de cabeza persistente desde hace 3 días',
+        symptoms: ['cefalea', 'mareos'],
+        treatment: 'Reposo, hidratación y paracetamol.',
+        diagnostics: [
+          {
+            name: 'Cefalea tensional',
+            description: 'Cefalea de características tensionales',
+          },
+        ],
+        physicalExams: [
+          { name: 'Examen neurológico', description: 'Sin focalidad' },
+        ],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'brazo derecho',
+          },
+        ],
+      };
+      const resolvedPatientId = '550e8400-e29b-41d4-a716-446655440001';
+      const resolvedSpecialtyId = '550e8400-e29b-41d4-a716-446655440002';
+      mockPrisma.patient.findUnique.mockImplementation((args: { where?: { patientNumber?: number } }) => {
+        if (args?.where?.patientNumber === 1) {
+          return Promise.resolve({ id: resolvedPatientId });
+        }
+        return Promise.resolve(null);
+      });
+      mockPrisma.specialty.findUnique.mockImplementation((args: { where?: { specialtyCode?: number } }) => {
+        if (args?.where?.specialtyCode === 2) {
+          return Promise.resolve({ id: resolvedSpecialtyId });
+        }
+        return Promise.resolve(null);
+      });
+      mockClinicHistoryService.createWithoutAppointment.mockResolvedValue({
+        id: 'history-uuid',
+        consultationReason: argsWithNumbers.consultationReason,
+      });
+
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(argsWithNumbers),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Historia clínica registrada correctamente.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia clínica para paciente 1 especialidad 2',
+      );
+
+      expect(mockPrisma.patient.findUnique).toHaveBeenCalledWith({
+        where: { patientNumber: 1 },
+      });
+      expect(mockPrisma.specialty.findUnique).toHaveBeenCalledWith({
+        where: { specialtyCode: 2 },
+      });
+      expect(
+        mockClinicHistoryService.createWithoutAppointment,
+      ).toHaveBeenCalledTimes(1);
+      const [, dto] =
+        mockClinicHistoryService.createWithoutAppointment.mock.calls[0];
+      expect(dto.patientNumber).toBe(1);
+      expect(dto.specialtyCode).toBe(2);
+      expect(dto.consultationReason).toBe(argsWithNumbers.consultationReason);
+    });
+
+    it('lanza NotFoundException cuando patientNumber no existe en create_clinic_history sin cita', async () => {
+      mockPrisma.patient.findUnique.mockResolvedValue(null);
+      const argsWithNumbers = {
+        patientNumber: 999,
+        specialtyCode: 1,
+        consultationReason: 'Motivo',
+        symptoms: ['síntoma'],
+        treatment: 'Tratamiento',
+        diagnostics: [{ name: 'D', description: 'Desc' }],
+        physicalExams: [{ name: 'E', description: 'E desc' }],
+        vitalSigns: [
+          {
+            name: 'PA',
+            value: '120',
+            unit: 'mmHg',
+            measurement: 'M',
+          },
+        ],
+      };
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify(argsWithNumbers),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Paciente no encontrado.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Registra historia para paciente 999',
+      );
+
+      expect(mockClinicHistoryService.createWithoutAppointment).not.toHaveBeenCalled();
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages =
+        (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
+          ?.messages ?? [];
+      const toolMessage = messages.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBe('patient-not-found');
+    });
+
+    it('lanza BadRequest cuando no hay appointmentId y faltan patientId o specialtyId', async () => {
+      mockChatCompletionsCreate
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: {
+                      name: 'create_clinic_history',
+                      arguments: JSON.stringify({
+                        consultationReason:
+                          'Dolor de cabeza persistente desde hace 3 días',
+                        symptoms: ['cefalea'],
+                        treatment: 'Reposo e hidratación.',
+                        diagnostics: [
+                          {
+                            name: 'Cefalea',
+                            description: 'Cefalea tensional',
+                          },
+                        ],
+                        physicalExams: [
+                          {
+                            name: 'Examen neurológico',
+                            description: 'Normal',
+                          },
+                        ],
+                        vitalSigns: [
+                          {
+                            name: 'PA',
+                            value: '120/80',
+                            unit: 'mmHg',
+                            measurement: 'brazo',
+                          },
+                        ],
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Se requieren patientId y specialtyId cuando no hay cita.',
+              },
+            },
+          ],
+        });
+
+      await service.processMessageFromDoctor(
+        '+584241234567',
+        'Crea historia sin cita',
+      );
+
+      expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
+      expect(
+        mockClinicHistoryService.createWithoutAppointment,
+      ).not.toHaveBeenCalled();
+      const secondCall = mockChatCompletionsCreate.mock.calls[1];
+      const messages =
+        (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
+          ?.messages ?? [];
+      const toolMessage = messages.find((m) => m.role === 'tool');
+      const content = toolMessage?.content ?? '';
+      const parsed = JSON.parse(content) as {
+        success?: boolean;
+        error?: string;
+      };
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBe(
+        'validation-error-patient-and-specialty-required-without-appointment',
+      );
     });
   });
 

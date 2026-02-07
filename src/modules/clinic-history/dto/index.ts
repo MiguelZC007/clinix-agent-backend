@@ -1,4 +1,5 @@
 export * from './create-clinic-history.dto';
+export * from './create-clinic-history-without-appointment.dto';
 export * from './create-diagnostic.dto';
 export * from './find-all-clinic-histories-query.dto';
 export * from './create-physical-exam.dto';

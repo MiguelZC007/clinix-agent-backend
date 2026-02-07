@@ -194,6 +194,12 @@ export class ClinicHistoryPatientDto {
   id: string;
 
   @ApiProperty({
+    description: 'Número único del paciente',
+    example: 1,
+  })
+  patientNumber: number;
+
+  @ApiProperty({
     description: 'Nombre del paciente',
     example: 'Juan',
   })
@@ -258,10 +264,19 @@ export class ClinicHistoryResponseDto {
   specialtyId: string;
 
   @ApiProperty({
-    description: 'ID de la cita asociada',
-    example: '550e8400-e29b-41d4-a716-446655440003',
+    description: 'Código único de la especialidad',
+    example: 1,
+    required: false,
   })
-  appointmentId: string;
+  specialtyCode?: number;
+
+  @ApiProperty({
+    description: 'ID de la cita asociada; null cuando la historia no está vinculada a una cita',
+    example: '550e8400-e29b-41d4-a716-446655440003',
+    required: false,
+    nullable: true,
+  })
+  appointmentId?: string | null;
 
   @ApiProperty({
     description: 'Motivo de la consulta',

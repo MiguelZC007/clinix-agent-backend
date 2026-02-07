@@ -6,11 +6,16 @@ import {
   BadRequestException,
   HttpException,
 } from '@nestjs/common';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import OpenAI from 'openai';
 import { ConversationService } from './conversation.service';
 import { AppointmentService } from '../appointment/appointment.service';
+import { ClinicHistoryService } from '../clinic-history/clinic-history.service';
+import { CreateClinicHistoryDto } from '../clinic-history/dto/create-clinic-history.dto';
+import { CreateClinicHistoryWithoutAppointmentDto } from '../clinic-history/dto/create-clinic-history-without-appointment.dto';
 import type { AppointmentResponseDto } from '../appointment/dto/appointment-response.dto';
 import environment from 'src/core/config/environments';
 
@@ -404,14 +409,35 @@ const clinicHistoryTools: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_clinic_history',
-      description: 'Create a new clinic history record for an appointment',
+      description:
+        'Create a new clinic history record. Can be linked to an appointment (provide appointmentId) or created without one. When without appointment: ask the doctor for patientNumber and specialtyCode (do not ask for UUIDs). Request one piece of information at a time: e.g. first ask for patient number, then specialty code, then consultation reason, etc.',
       parameters: {
         type: 'object',
         properties: {
           appointmentId: {
             type: 'string',
             description:
-              'The unique identifier (UUID) of the associated appointment',
+              'The unique identifier (UUID) of the associated appointment. Optional; if omitted, ask the doctor for patientNumber and specialtyCode (not UUIDs).',
+          },
+          patientId: {
+            type: 'string',
+            description:
+              'UUID of the patient. Prefer asking the doctor for patientNumber instead when creating without appointment.',
+          },
+          specialtyId: {
+            type: 'string',
+            description:
+              'UUID of the specialty. Prefer asking the doctor for specialtyCode instead when creating without appointment.',
+          },
+          patientNumber: {
+            type: 'integer',
+            description:
+              'Patient number to ask the doctor for (from the numbered list in search_patients/get_all_patients). When creating without appointment, ask the doctor for this number; do not ask for UUID. Must send together with specialtyCode.',
+          },
+          specialtyCode: {
+            type: 'integer',
+            description:
+              'Specialty code to ask the doctor for (from the numbered list in list_specialties). When creating without appointment, ask the doctor for this code; do not ask for UUID. Must send together with patientNumber.',
           },
           consultationReason: {
             type: 'string',
@@ -550,7 +576,6 @@ const clinicHistoryTools: ChatCompletionTool[] = [
           },
         },
         required: [
-          'appointmentId',
           'consultationReason',
           'symptoms',
           'treatment',
@@ -642,7 +667,7 @@ FUNCIONES DISPONIBLES:
 REGLAS ESTRICTAS:
 1. NO puedes desviarte de estas funciones. Si el médico solicita algo fuera de este alcance, responde que solo puedes ayudar con las funciones mencionadas.
 2. NO puedes suponer información. Si falta algún dato requerido, DEBES solicitarlo explícitamente al médico antes de ejecutar cualquier función.
-3. Al registrar un paciente o crear una historia clínica, guía al médico para realizar una anamnesis completa solicitando:
+3. Al registrar un paciente o crear una historia clínica, guía al médico para realizar una anamnesis completa. Para historia clínica sin cita: primero identifica paciente y especialidad por número/código (dato por dato), luego solicita el resto. Solicita cada tipo de dato por separado:
    - Datos personales del paciente (nombre, apellido, email, teléfono, género, fecha de nacimiento)
    - Motivo de consulta
    - Síntomas actuales (descripción detallada, inicio, duración, intensidad)
@@ -658,7 +683,9 @@ REGLAS ESTRICTAS:
 9. Para especialidad o paciente, usa primero list_specialties o search_patients. Presenta al médico solo nombres (ej. "Especialidades: 1. Cardiología, 2. Pediatría" o "Pacientes: Juan Pérez, María González").
 10. Cuando el médico elija por nombre o por número de opción, usa el id del resultado del tool en las llamadas que lo requieran (create_appointment con specialtyId y patientId, get_patient con patientId, etc.).
 11. Para crear una cita, si no conoces la especialidad o el paciente, llama a list_specialties y/o search_patients, presenta las opciones por nombre, y cuando el médico elija usa los ids correspondientes en create_appointment.
-12. create_appointment: patientId debe ser el "id" (UUID) de la fila elegida en search_patients/get_all_patients, o el "patientNumber" (ej. "1") de esa fila; specialtyId el "id" de list_specialties. Cada paciente tiene id y patientNumber (número único); presenta opciones como "1. Pedro González", "2. María López" y usa el id (o patientNumber) de la fila que el médico elija. NUNCA pases solo el nombre; usa el id o patientNumber del resultado del tool.`;
+12. create_appointment: patientId debe ser el "id" (UUID) de la fila elegida en search_patients/get_all_patients, o el "patientNumber" (ej. "1") de esa fila; specialtyId el "id" de list_specialties. Cada paciente tiene id y patientNumber (número único); presenta opciones como "1. Pedro González", "2. María López" y usa el id (o patientNumber) de la fila que el médico elija. NUNCA pases solo el nombre; usa el id o patientNumber del resultado del tool.
+13. create_clinic_history sin cita: NUNCA pidas ni menciones UUID al médico. Pide el número del paciente (patientNumber) y el código de la especialidad (specialtyCode). Llama a list_specialties y a search_patients o get_all_patients y muestra listas numeradas (ej. "Pacientes: 1. Juan Pérez, 2. María López" y "Especialidades: 1. Cardiología, 2. Pediatría"); el médico indica el número y tú usas ese número en create_clinic_history (patientNumber y specialtyCode).
+14. Al recoger datos para cualquier acción (en especial para crear historia clínica sin cita), solicita UN SOLO dato por mensaje: primero el número del paciente, espera la respuesta, luego el código de la especialidad, luego motivo de consulta, luego síntomas, etc. No agrupes varias preguntas en un solo mensaje; espera la respuesta antes de pedir el siguiente dato.`;
 
   private readonly openai: OpenAI;
 
@@ -666,6 +693,7 @@ REGLAS ESTRICTAS:
     private readonly prisma: PrismaService,
     private readonly conversationService: ConversationService,
     private readonly appointmentService: AppointmentService,
+    private readonly clinicHistoryService: ClinicHistoryService,
   ) {
     this.openai = new OpenAI({
       apiKey: environment.OPENAI_API_KEY,
@@ -937,6 +965,8 @@ REGLAS ESTRICTAS:
         'Varios pacientes coinciden con ese nombre. Use search_patients y pase el id del paciente elegido.',
       'appointment-specialty-ambiguous':
         'Varias especialidades coinciden. Use list_specialties y pase el id de la especialidad elegida.',
+      'validation-error-patient-and-specialty-required-without-appointment':
+        'Indique el número del paciente y el código de la especialidad (uno por vez si lo prefiere).',
       [ErrorCode.CONFLICT]: 'Conflicto con los datos. Intente de nuevo.',
       [ErrorCode.NOT_FOUND]: 'Recurso no encontrado.',
       [ErrorCode.BAD_REQUEST]: 'Datos inválidos. Verifique e intente de nuevo.',
@@ -1104,6 +1134,230 @@ REGLAS ESTRICTAS:
     throw new BadRequestException('appointment-specialty-ambiguous');
   }
 
+  private async mapCreateClinicHistoryArgsToDto(
+    args: Record<string, unknown>,
+  ): Promise<CreateClinicHistoryDto> {
+    const diagnostics = Array.isArray(args.diagnostics)
+      ? (args.diagnostics as unknown[]).map((d: unknown) => {
+          const o = d as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            description: String(o?.description ?? ''),
+          };
+        })
+      : [];
+    const physicalExams = Array.isArray(args.physicalExams)
+      ? (args.physicalExams as unknown[]).map((p: unknown) => {
+          const o = p as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            description: String(o?.description ?? ''),
+          };
+        })
+      : [];
+    const vitalSigns = Array.isArray(args.vitalSigns)
+      ? (args.vitalSigns as unknown[]).map((v: unknown) => {
+          const o = v as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            value: String(o?.value ?? ''),
+            unit: String(o?.unit ?? ''),
+            measurement: String(o?.measurement ?? ''),
+            description:
+              o?.description != null ? String(o.description) : undefined,
+          };
+        })
+      : [];
+    const prescriptionRaw = args.prescription;
+    let prescription: {
+      name: string;
+      description: string;
+      medications: Array<{
+        name: string;
+        quantity: number;
+        unit: string;
+        frequency: string;
+        duration: string;
+        indications: string;
+        administrationRoute: string;
+        description?: string;
+      }>;
+    } | undefined;
+    if (
+      prescriptionRaw != null &&
+      typeof prescriptionRaw === 'object' &&
+      Array.isArray((prescriptionRaw as Record<string, unknown>).medications)
+    ) {
+      const pr = prescriptionRaw as Record<string, unknown>;
+      const meds = (pr.medications as unknown[]).map((m: unknown) => {
+        const med = m as Record<string, unknown>;
+        const q = med.quantity;
+        const quantity =
+          typeof q === 'number' ? Math.floor(q) : Math.floor(Number(q));
+        return {
+          name: String(med.name ?? ''),
+          quantity: Number.isFinite(quantity) ? quantity : 0,
+          unit: String(med.unit ?? ''),
+          frequency: String(med.frequency ?? ''),
+          duration: String(med.duration ?? ''),
+          indications: String(med.indications ?? ''),
+          administrationRoute: String(med.administrationRoute ?? ''),
+          description:
+            med.description != null ? String(med.description) : undefined,
+        };
+      });
+      prescription = {
+        name: String(pr.name ?? ''),
+        description: String(pr.description ?? ''),
+        medications: meds,
+      };
+    }
+    const symptoms = Array.isArray(args.symptoms)
+      ? (args.symptoms as unknown[]).map((s: unknown) => String(s ?? ''))
+      : typeof args.symptoms === 'string'
+        ? [args.symptoms]
+        : [];
+    const plain = {
+      appointmentId: String(args.appointmentId ?? ''),
+      consultationReason: String(args.consultationReason ?? ''),
+      symptoms,
+      treatment: String(args.treatment ?? ''),
+      diagnostics,
+      physicalExams,
+      vitalSigns,
+      ...(prescription != null ? { prescription } : {}),
+    };
+    const dto = plainToInstance(CreateClinicHistoryDto, plain);
+    const errors = await validate(dto);
+    if (errors.length > 0) {
+      const messages = errors.flatMap((e) =>
+        e.constraints ? Object.values(e.constraints) : [],
+      );
+      throw new BadRequestException({
+        message: messages.length > 0 ? messages : 'validation-error',
+      });
+    }
+    return dto;
+  }
+
+  private async mapCreateClinicHistoryArgsToDtoWithoutAppointment(
+    args: Record<string, unknown>,
+    patientId: string,
+    specialtyId: string,
+    patientNumber?: number,
+    specialtyCode?: number,
+  ): Promise<CreateClinicHistoryWithoutAppointmentDto> {
+    const diagnostics = Array.isArray(args.diagnostics)
+      ? (args.diagnostics as unknown[]).map((d: unknown) => {
+          const o = d as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            description: String(o?.description ?? ''),
+          };
+        })
+      : [];
+    const physicalExams = Array.isArray(args.physicalExams)
+      ? (args.physicalExams as unknown[]).map((p: unknown) => {
+          const o = p as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            description: String(o?.description ?? ''),
+          };
+        })
+      : [];
+    const vitalSigns = Array.isArray(args.vitalSigns)
+      ? (args.vitalSigns as unknown[]).map((v: unknown) => {
+          const o = v as Record<string, unknown>;
+          return {
+            name: String(o?.name ?? ''),
+            value: String(o?.value ?? ''),
+            unit: String(o?.unit ?? ''),
+            measurement: String(o?.measurement ?? ''),
+            description:
+              o?.description != null ? String(o.description) : undefined,
+          };
+        })
+      : [];
+    const prescriptionRaw = args.prescription;
+    let prescription: {
+      name: string;
+      description: string;
+      medications: Array<{
+        name: string;
+        quantity: number;
+        unit: string;
+        frequency: string;
+        duration: string;
+        indications: string;
+        administrationRoute: string;
+        description?: string;
+      }>;
+    } | undefined;
+    if (
+      prescriptionRaw != null &&
+      typeof prescriptionRaw === 'object' &&
+      Array.isArray((prescriptionRaw as Record<string, unknown>).medications)
+    ) {
+      const pr = prescriptionRaw as Record<string, unknown>;
+      const meds = (pr.medications as unknown[]).map((m: unknown) => {
+        const med = m as Record<string, unknown>;
+        const q = med.quantity;
+        const quantity =
+          typeof q === 'number' ? Math.floor(q) : Math.floor(Number(q));
+        return {
+          name: String(med.name ?? ''),
+          quantity: Number.isFinite(quantity) ? quantity : 0,
+          unit: String(med.unit ?? ''),
+          frequency: String(med.frequency ?? ''),
+          duration: String(med.duration ?? ''),
+          indications: String(med.indications ?? ''),
+          administrationRoute: String(med.administrationRoute ?? ''),
+          description:
+            med.description != null ? String(med.description) : undefined,
+        };
+      });
+      prescription = {
+        name: String(pr.name ?? ''),
+        description: String(pr.description ?? ''),
+        medications: meds,
+      };
+    }
+    const symptoms = Array.isArray(args.symptoms)
+      ? (args.symptoms as unknown[]).map((s: unknown) => String(s ?? ''))
+      : typeof args.symptoms === 'string'
+        ? [args.symptoms]
+        : [];
+    const useNumbers =
+      patientNumber != null &&
+      specialtyCode != null &&
+      Number.isInteger(patientNumber) &&
+      Number.isInteger(specialtyCode);
+    const plain = {
+      ...(useNumbers ? { patientNumber, specialtyCode } : { patientId, specialtyId }),
+      consultationReason: String(args.consultationReason ?? ''),
+      symptoms,
+      treatment: String(args.treatment ?? ''),
+      diagnostics,
+      physicalExams,
+      vitalSigns,
+      ...(prescription != null ? { prescription } : {}),
+    };
+    const dto = plainToInstance(
+      CreateClinicHistoryWithoutAppointmentDto,
+      plain,
+    );
+    const errors = await validate(dto);
+    if (errors.length > 0) {
+      const messages = errors.flatMap((e) =>
+        e.constraints ? Object.values(e.constraints) : [],
+      );
+      throw new BadRequestException({
+        message: messages.length > 0 ? messages : 'validation-error',
+      });
+    }
+    return dto;
+  }
+
   private async executeToolFunction(
     doctorId: string,
     functionName: string,
@@ -1138,7 +1392,7 @@ REGLAS ESTRICTAS:
 
       case 'list_specialties':
         return this.prisma.specialty.findMany({
-          select: { id: true, name: true },
+          select: { id: true, name: true, specialtyCode: true },
           orderBy: { name: 'asc' },
         });
 
@@ -1442,62 +1696,91 @@ REGLAS ESTRICTAS:
       }
 
       case 'create_clinic_history': {
-        const appointment = await this.prisma.appointment.findUnique({
-          where: { id: args.appointmentId as string },
-        });
-        if (!appointment) {
-          throw new NotFoundException('appointment-not-found');
+        const appointmentId =
+          typeof args.appointmentId === 'string' && args.appointmentId.trim()
+            ? args.appointmentId
+            : undefined;
+        if (appointmentId) {
+          const appointment = await this.prisma.appointment.findUnique({
+            where: { id: appointmentId },
+          });
+          if (!appointment) {
+            throw new NotFoundException('appointment-not-found');
+          }
+          if (appointment.doctorId !== doctorId) {
+            throw new ForbiddenException('appointment-not-owned-by-doctor');
+          }
+          const dto = await this.mapCreateClinicHistoryArgsToDto(args);
+          return this.clinicHistoryService.create(dto);
         }
-        if (appointment.doctorId !== doctorId) {
-          throw new ForbiddenException('appointment-not-owned-by-doctor');
+        const patientIdArg =
+          typeof args.patientId === 'string' && args.patientId.trim()
+            ? args.patientId
+            : undefined;
+        const specialtyIdArg =
+          typeof args.specialtyId === 'string' && args.specialtyId.trim()
+            ? args.specialtyId
+            : undefined;
+        const patientNumberArg =
+          typeof args.patientNumber === 'number' && Number.isInteger(args.patientNumber)
+            ? args.patientNumber
+            : undefined;
+        const specialtyCodeArg =
+          typeof args.specialtyCode === 'number' && Number.isInteger(args.specialtyCode)
+            ? args.specialtyCode
+            : undefined;
+
+        const useNumbers =
+          patientNumberArg !== undefined && specialtyCodeArg !== undefined;
+        const useIds =
+          patientIdArg !== undefined && specialtyIdArg !== undefined;
+
+        if (useNumbers && useIds) {
+          throw new BadRequestException(
+            'validation-error-use-either-ids-or-numbers-not-both',
+          );
         }
-        return this.prisma.clinicHistory.create({
-          data: {
-            appointmentId: args.appointmentId as string,
-            patientId: appointment.patientId,
-            doctorId: appointment.doctorId,
-            specialtyId: appointment.specialtyId,
-            consultationReason: args.consultationReason as string,
-            symptoms: args.symptoms as string[],
-            treatment: args.treatment as string,
-            diagnostics: {
-              create: (
-                args.diagnostics as Array<{ name: string; description: string }>
-              ).map((d) => ({
-                name: d.name,
-                description: d.description,
-              })),
-            },
-            physicalExams: {
-              create: (
-                args.physicalExams as Array<{
-                  name: string;
-                  description: string;
-                }>
-              ).map((p) => ({
-                name: p.name,
-                description: p.description,
-              })),
-            },
-            vitalSigns: {
-              create: (
-                args.vitalSigns as Array<{
-                  name: string;
-                  value: string;
-                  unit: string;
-                  measurement: string;
-                  description?: string;
-                }>
-              ).map((v) => ({
-                name: v.name,
-                value: v.value,
-                unit: v.unit,
-                measurement: v.measurement,
-                description: v.description,
-              })),
-            },
-          },
-        });
+        if (!useNumbers && !useIds) {
+          throw new BadRequestException(
+            'validation-error-patient-and-specialty-required-without-appointment',
+          );
+        }
+
+        let resolvedPatientId: string;
+        let resolvedSpecialtyId: string;
+
+        if (useNumbers) {
+          const patientByNumber = await this.prisma.patient.findUnique({
+            where: { patientNumber: patientNumberArg },
+          });
+          if (!patientByNumber) {
+            throw new NotFoundException('patient-not-found');
+          }
+          const specialtyByCode = await this.prisma.specialty.findUnique({
+            where: { specialtyCode: specialtyCodeArg },
+          });
+          if (!specialtyByCode) {
+            throw new NotFoundException('specialty-not-found');
+          }
+          resolvedPatientId = patientByNumber.id;
+          resolvedSpecialtyId = specialtyByCode.id;
+        } else {
+          resolvedPatientId = patientIdArg as string;
+          resolvedSpecialtyId = specialtyIdArg as string;
+        }
+
+        const dtoWithoutAppointment =
+          await this.mapCreateClinicHistoryArgsToDtoWithoutAppointment(
+            args,
+            resolvedPatientId,
+            resolvedSpecialtyId,
+            patientNumberArg,
+            specialtyCodeArg,
+          );
+        return this.clinicHistoryService.createWithoutAppointment(
+          doctorId,
+          dtoWithoutAppointment,
+        );
       }
 
       case 'get_all_clinic_histories':

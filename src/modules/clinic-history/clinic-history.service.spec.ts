@@ -7,6 +7,7 @@ import {
   MockPrismaService,
 } from 'src/prisma/__mocks__/prisma.service.mock';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
+import { CreateClinicHistoryWithoutAppointmentDto } from './dto/create-clinic-history-without-appointment.dto';
 
 describe('ClinicHistoryService', () => {
   let service: ClinicHistoryService;
@@ -14,13 +15,14 @@ describe('ClinicHistoryService', () => {
 
   const mockPatient = {
     id: 'patient-uuid',
+    patientNumber: 1,
     user: { name: 'Juan', lastName: 'Pérez' },
   };
 
   const mockDoctor = {
     id: 'doctor-uuid',
     user: { name: 'María', lastName: 'González' },
-    specialty: { name: 'Cardiología' },
+    specialty: { name: 'Cardiología', specialtyCode: 1 },
   };
 
   const mockAppointment = {
@@ -143,6 +145,222 @@ describe('ClinicHistoryService', () => {
     });
   });
 
+  describe('createWithoutAppointment', () => {
+    const createWithoutAppointmentDto: CreateClinicHistoryWithoutAppointmentDto =
+      {
+        patientId: 'patient-uuid',
+        specialtyId: 'specialty-uuid',
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor', 'mareos'],
+        treatment: 'Reposo y medicación',
+        diagnostics: [
+          { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+        ],
+        physicalExams: [
+          { name: 'Examen neurológico', description: 'Normal' },
+        ],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'sistólica/diastólica',
+          },
+        ],
+      };
+
+    const mockClinicHistoryWithoutAppointment = {
+      ...mockClinicHistory,
+      appointmentId: null,
+    };
+
+    it('debe crear una historia clínica sin cita exitosamente', async () => {
+      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.specialty.findUnique.mockResolvedValue({
+        id: 'specialty-uuid',
+        name: 'Cardiología',
+      });
+      prisma.doctor.findUnique.mockResolvedValue({
+        ...mockDoctor,
+        specialtyId: 'specialty-uuid',
+      });
+      prisma.clinicHistory.create.mockResolvedValue(
+        mockClinicHistoryWithoutAppointment,
+      );
+
+      const result = await service.createWithoutAppointment(
+        'doctor-uuid',
+        createWithoutAppointmentDto,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.consultationReason).toBe('Dolor de cabeza');
+      expect(result.appointmentId).toBeNull();
+      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+        where: { id: 'patient-uuid' },
+      });
+      expect(prisma.specialty.findUnique).toHaveBeenCalledWith({
+        where: { id: 'specialty-uuid' },
+      });
+      expect(prisma.doctor.findUnique).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        include: { specialty: true },
+      });
+      expect(prisma.clinicHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            patientId: 'patient-uuid',
+            doctorId: 'doctor-uuid',
+            specialtyId: 'specialty-uuid',
+            appointmentId: null,
+            consultationReason: 'Dolor de cabeza',
+          }),
+        }),
+      );
+    });
+
+    it('debe lanzar NotFoundException si el paciente no existe', async () => {
+      prisma.patient.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createWithoutAppointment(
+          'doctor-uuid',
+          createWithoutAppointmentDto,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('debe lanzar NotFoundException si la especialidad no existe', async () => {
+      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.specialty.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createWithoutAppointment(
+          'doctor-uuid',
+          createWithoutAppointmentDto,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('debe crear historia clínica sin cita usando patientNumber y specialtyCode', async () => {
+      const dtoWithNumbers: CreateClinicHistoryWithoutAppointmentDto = {
+        patientNumber: 1,
+        specialtyCode: 1,
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor', 'mareos'],
+        treatment: 'Reposo y medicación',
+        diagnostics: [
+          { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+        ],
+        physicalExams: [
+          { name: 'Examen neurológico', description: 'Normal' },
+        ],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'sistólica/diastólica',
+          },
+        ],
+      };
+      const patientByNumber = { ...mockPatient, id: 'patient-uuid' };
+      const specialtyByCode = {
+        id: 'specialty-uuid',
+        name: 'Cardiología',
+        specialtyCode: 1,
+      };
+      prisma.patient.findUnique.mockResolvedValue(patientByNumber);
+      prisma.specialty.findUnique.mockResolvedValue(specialtyByCode);
+      prisma.doctor.findUnique.mockResolvedValue({
+        ...mockDoctor,
+        specialtyId: 'specialty-uuid',
+      });
+      prisma.clinicHistory.create.mockResolvedValue(
+        mockClinicHistoryWithoutAppointment,
+      );
+
+      const result = await service.createWithoutAppointment(
+        'doctor-uuid',
+        dtoWithNumbers,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.appointmentId).toBeNull();
+      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+        where: { patientNumber: 1 },
+      });
+      expect(prisma.specialty.findUnique).toHaveBeenCalledWith({
+        where: { specialtyCode: 1 },
+      });
+      expect(prisma.clinicHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            patientId: 'patient-uuid',
+            specialtyId: 'specialty-uuid',
+          }),
+        }),
+      );
+    });
+
+    it('debe lanzar NotFoundException si no existe paciente con patientNumber', async () => {
+      const dtoWithNumbers: CreateClinicHistoryWithoutAppointmentDto = {
+        patientNumber: 999,
+        specialtyCode: 1,
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor'],
+        treatment: 'Reposo',
+        diagnostics: [{ name: 'X', description: 'Y' }],
+        physicalExams: [{ name: 'A', description: 'B' }],
+        vitalSigns: [
+          {
+            name: 'P',
+            value: '120',
+            unit: 'mmHg',
+            measurement: 'M',
+          },
+        ],
+      };
+      prisma.patient.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createWithoutAppointment('doctor-uuid', dtoWithNumbers),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+        where: { patientNumber: 999 },
+      });
+    });
+
+    it('debe lanzar NotFoundException si no existe especialidad con specialtyCode', async () => {
+      const dtoWithNumbers: CreateClinicHistoryWithoutAppointmentDto = {
+        patientNumber: 1,
+        specialtyCode: 999,
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor'],
+        treatment: 'Reposo',
+        diagnostics: [{ name: 'X', description: 'Y' }],
+        physicalExams: [{ name: 'A', description: 'B' }],
+        vitalSigns: [
+          {
+            name: 'P',
+            value: '120',
+            unit: 'mmHg',
+            measurement: 'M',
+          },
+        ],
+      };
+      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.specialty.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createWithoutAppointment('doctor-uuid', dtoWithNumbers),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.specialty.findUnique).toHaveBeenCalledWith({
+        where: { specialtyCode: 999 },
+      });
+    });
+  });
+
   describe('findAll', () => {
     it('debe retornar lista paginada de historias clínicas', async () => {
       prisma.$transaction.mockImplementation((args: unknown[]) =>
@@ -179,6 +397,19 @@ describe('ClinicHistoryService', () => {
 
       expect(result).toBeDefined();
       expect(result.id).toBe('clinic-history-uuid');
+    });
+
+    it('debe retornar appointmentId null cuando la historia no tiene cita asociada', async () => {
+      const withoutAppointment = {
+        ...mockClinicHistory,
+        appointmentId: null,
+      };
+      prisma.clinicHistory.findUnique.mockResolvedValue(withoutAppointment);
+
+      const result = await service.findOne('clinic-history-uuid');
+
+      expect(result).toBeDefined();
+      expect(result.appointmentId).toBeNull();
     });
 
     it('debe lanzar NotFoundException si la historia no existe', async () => {
