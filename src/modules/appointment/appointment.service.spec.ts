@@ -145,6 +145,26 @@ describe('AppointmentService', () => {
     });
   });
 
+  describe('findSpecialties', () => {
+    it('debe retornar lista de especialidades ordenada por nombre', async () => {
+      const specialties = [
+        { id: 'spec-1', name: 'Cardiología' },
+        { id: 'spec-2', name: 'Medicina General' },
+      ];
+      prisma.specialty.findMany.mockResolvedValue(specialties);
+
+      const result = await service.findSpecialties();
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({ id: 'spec-1', name: 'Cardiología' });
+      expect(result[1]).toEqual({ id: 'spec-2', name: 'Medicina General' });
+      expect(prisma.specialty.findMany).toHaveBeenCalledWith({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+    });
+  });
+
   describe('findAll', () => {
     const doctorId = 'doctor-uuid';
     it('debe retornar lista de citas paginada del doctor', async () => {

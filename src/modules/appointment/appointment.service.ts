@@ -13,12 +13,21 @@ import {
   AppointmentPatientDto,
   AppointmentDoctorDto,
 } from './dto/appointment-response.dto';
+import { SpecialtyItemDto } from './dto/specialty-item.dto';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 
 @Injectable()
 export class AppointmentService {
   constructor(private readonly prisma: PrismaService) { }
+
+  async findSpecialties(): Promise<SpecialtyItemDto[]> {
+    const rows = await this.prisma.specialty.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map((r) => ({ id: r.id, name: r.name }));
+  }
 
   async create(
     createAppointmentDto: CreateAppointmentDto,

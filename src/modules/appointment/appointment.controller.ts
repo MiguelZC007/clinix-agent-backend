@@ -24,6 +24,7 @@ import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
 import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 import { FindAppointmentsQueryDto } from './dto/find-appointments-query.dto';
+import { SpecialtyItemDto } from './dto/specialty-item.dto';
 
 type DoctorRef = { id: string };
 type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
@@ -95,6 +96,18 @@ export class AppointmentController {
       query.endDate,
       query.status,
     );
+  }
+
+  @Get('specialties')
+  @ApiOperation({ summary: 'Listar especialidades para formulario de cita' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de especialidades (id, name)',
+    type: [SpecialtyItemDto],
+  })
+  @ApiResponse({ status: 403, description: 'No autorizado' })
+  findSpecialties(): Promise<SpecialtyItemDto[]> {
+    return this.appointmentService.findSpecialties();
   }
 
   @Get(':id')

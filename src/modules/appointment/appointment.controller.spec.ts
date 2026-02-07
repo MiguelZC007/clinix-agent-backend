@@ -7,6 +7,7 @@ import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import { SpecialtyItemDto } from './dto/specialty-item.dto';
 import type { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 import { StatusAppointment } from 'src/core/enum/statusAppointment.enum';
 
@@ -64,6 +65,9 @@ describe('AppointmentController', () => {
         doctorId: string,
       ) => Promise<AppointmentResponseDto[]>
     >;
+    findSpecialties: jest.MockedFunction<
+      (this: void) => Promise<SpecialtyItemDto[]>
+    >;
   };
 
   let service: MockAppointmentService;
@@ -100,6 +104,7 @@ describe('AppointmentController', () => {
       update: jest.fn(),
       cancel: jest.fn(),
       findByPatient: jest.fn(),
+      findSpecialties: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -134,6 +139,22 @@ describe('AppointmentController', () => {
 
       expect(service.create).toHaveBeenCalledWith(createDto, 'doctor-uuid');
       expect(result).toEqual(mockAppointmentResponse);
+    });
+  });
+
+  describe('findSpecialties', () => {
+    it('debe retornar lista de especialidades', async () => {
+      const specialties: SpecialtyItemDto[] = [
+        { id: 'spec-1', name: 'Cardiología' },
+        { id: 'spec-2', name: 'Medicina General' },
+      ];
+      service.findSpecialties.mockResolvedValue(specialties);
+
+      const result = await controller.findSpecialties();
+
+      expect(service.findSpecialties).toHaveBeenCalled();
+      expect(result).toHaveLength(2);
+      expect(result[0].name).toBe('Cardiología');
     });
   });
 
