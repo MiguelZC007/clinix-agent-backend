@@ -1111,10 +1111,6 @@ REGLAS ESTRICTAS:
   ): Promise<unknown> {
     switch (functionName) {
       case 'register_patient': {
-        const maxResult = await this.prisma.patient.aggregate({
-          _max: { patientNumber: true },
-        });
-        const nextPatientNumber = (maxResult._max.patientNumber ?? 0) + 1;
         return this.prisma.user.create({
           data: {
             email: args.email as string,
@@ -1125,7 +1121,6 @@ REGLAS ESTRICTAS:
             patient: {
               create: {
                 registeredByDoctorId: doctorId,
-                patientNumber: nextPatientNumber,
                 gender: args.gender as string | undefined,
                 birthDate: args.birthDate
                   ? new Date(args.birthDate as string)

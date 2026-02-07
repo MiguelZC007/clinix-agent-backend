@@ -22,7 +22,7 @@ model User {
 
 model Patient {
   id                   String          @id @default(uuid())
-  patientNumber        Int?            @unique
+  patientNumber        Int             @default(autoincrement()) @unique
   userId               String          @unique
   user                 User            @relation(fields: [userId], references: [id])
   registeredByDoctorId String?
