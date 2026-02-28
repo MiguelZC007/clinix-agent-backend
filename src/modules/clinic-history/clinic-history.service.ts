@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { CreateClinicHistoryWithoutAppointmentDto } from './dto/create-clinic-history-without-appointment.dto';
@@ -250,7 +251,7 @@ export class ClinicHistoryService {
   ): Promise<ClinicHistoryListResultDto> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
-    const where = {};
+    const where = this.buildFindAllWhere(query);
 
     const [clinicHistories, total] = await this.prisma.$transaction([
       this.prisma.clinicHistory.findMany({
@@ -329,6 +330,82 @@ export class ClinicHistoryService {
     });
 
     return clinicHistories.map((ch) => this.mapToClinicHistoryResponse(ch));
+  }
+
+  private buildFindAllWhere(
+    query: FindAllClinicHistoriesQueryDto,
+  ): Prisma.ClinicHistoryWhereInput {
+    const conditions: Prisma.ClinicHistoryWhereInput[] = [];
+
+    if (query.patientId) {
+      conditions.push({ patientId: query.patientId });
+    }
+
+    const trimmedSearch =
+      typeof query.search === 'string' ? query.search.trim() : '';
+    if (trimmedSearch.length > 0) {
+      conditions.push({
+        OR: [
+          {
+            patient: {
+              user: {
+                name: { contains: trimmedSearch, mode: 'insensitive' },
+              },
+            },
+          },
+          {
+            patient: {
+              user: {
+                lastName: { contains: trimmedSearch, mode: 'insensitive' },
+              },
+            },
+          },
+          {
+            consultationReason: {
+              contains: trimmedSearch,
+              mode: 'insensitive',
+            },
+          },
+          {
+            treatment: { contains: trimmedSearch, mode: 'insensitive' },
+          },
+          {
+            diagnostics: {
+              some: {
+                OR: [
+                  {
+                    name: { contains: trimmedSearch, mode: 'insensitive' },
+                  },
+                  {
+                    description: {
+                      contains: trimmedSearch,
+                      mode: 'insensitive',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (query.dateFrom || query.dateTo) {
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (query.dateFrom) {
+        createdAt.gte = new Date(query.dateFrom);
+      }
+      if (query.dateTo) {
+        const endOfDay = new Date(query.dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        createdAt.lte = endOfDay;
+      }
+      conditions.push({ createdAt });
+    }
+
+    if (conditions.length === 0) return {};
+    if (conditions.length === 1) return conditions[0];
+    return { AND: conditions };
   }
 
   private mapToClinicHistoryResponse(clinicHistory: {

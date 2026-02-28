@@ -8,6 +8,7 @@ import {
 } from 'src/prisma/__mocks__/prisma.service.mock';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { CreateClinicHistoryWithoutAppointmentDto } from './dto/create-clinic-history-without-appointment.dto';
+import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 
 describe('ClinicHistoryService', () => {
   let service: ClinicHistoryService;
@@ -362,13 +363,15 @@ describe('ClinicHistoryService', () => {
   });
 
   describe('findAll', () => {
-    it('debe retornar lista paginada de historias clínicas', async () => {
+    beforeEach(() => {
       prisma.$transaction.mockImplementation((args: unknown[]) =>
         Promise.all(args as Promise<unknown>[]),
       );
       prisma.clinicHistory.findMany.mockResolvedValue([mockClinicHistory]);
       prisma.clinicHistory.count.mockResolvedValue(1);
+    });
 
+    it('debe retornar lista paginada de historias clínicas', async () => {
       const result = await service.findAll({ page: 1, pageSize: 10 });
 
       expect(result).toEqual({
@@ -386,6 +389,106 @@ describe('ClinicHistoryService', () => {
         }),
       );
       expect(prisma.clinicHistory.count).toHaveBeenCalledWith({ where: {} });
+    });
+
+    it('debe construir where con search cuando se pasa search', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        search: 'dolor',
+      };
+      await service.findAll(query);
+
+      const findManyCall = prisma.clinicHistory.findMany.mock
+        .calls[0][0] as { where?: unknown };
+      expect(findManyCall.where).toBeDefined();
+      expect(findManyCall.where).toHaveProperty('OR');
+      const orConditions = (findManyCall.where as { OR: unknown[] }).OR;
+      expect(orConditions.length).toBeGreaterThan(0);
+      expect(prisma.clinicHistory.count).toHaveBeenCalledWith({
+        where: findManyCall.where,
+      });
+    });
+
+    it('debe construir where con patientId cuando se pasa patientId', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        patientId: '123e4567-e89b-12d3-a456-426614174000',
+      };
+      await service.findAll(query);
+
+      const findManyCall = prisma.clinicHistory.findMany.mock
+        .calls[0][0] as { where?: { patientId?: string } };
+      expect(findManyCall.where).toEqual({
+        patientId: '123e4567-e89b-12d3-a456-426614174000',
+      });
+    });
+
+    it('debe construir where con createdAt cuando se pasa dateFrom', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        dateFrom: '2026-01-01',
+      };
+      await service.findAll(query);
+
+      const findManyCall = prisma.clinicHistory.findMany.mock
+        .calls[0][0] as { where?: { createdAt?: { gte?: Date } } };
+      expect(findManyCall.where).toHaveProperty('createdAt');
+      expect(findManyCall.where?.createdAt).toHaveProperty('gte');
+      expect(
+        (findManyCall.where?.createdAt?.gte as Date).toISOString(),
+      ).toContain('2026-01-01');
+    });
+
+    it('debe construir where con createdAt cuando se pasa dateTo', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        dateTo: '2026-12-31',
+      };
+      await service.findAll(query);
+
+      const findManyCall = prisma.clinicHistory.findMany.mock
+        .calls[0][0] as { where?: { createdAt?: { lte?: Date } } };
+      expect(findManyCall.where).toHaveProperty('createdAt');
+      expect(findManyCall.where?.createdAt).toHaveProperty('lte');
+    });
+
+    it('debe construir where con AND cuando se combinan filtros', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        patientId: '123e4567-e89b-12d3-a456-426614174000',
+        dateFrom: '2026-01-01',
+        dateTo: '2026-12-31',
+      };
+      await service.findAll(query);
+
+      const findManyCall = prisma.clinicHistory.findMany.mock
+        .calls[0][0] as { where?: { AND?: unknown[] } };
+      expect(findManyCall.where).toHaveProperty('AND');
+      const and = (findManyCall.where as { AND: unknown[] }).AND;
+      expect(and.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('debe mantener paginación intacta con filtros', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 2,
+        pageSize: 5,
+        search: 'test',
+      };
+      const result = await service.findAll(query);
+
+      expect(result.page).toBe(2);
+      expect(result.pageSize).toBe(5);
+      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 5,
+          take: 5,
+        }),
+      );
     });
   });
 
