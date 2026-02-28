@@ -267,6 +267,7 @@ export class PatientService {
     updatedAt: Date;
     patient: {
       id: string;
+      patientNumber: number;
       gender: string | null;
       birthDate: Date | null;
       address: string | null;
@@ -274,6 +275,7 @@ export class PatientService {
   }): PatientResponseDto {
     return {
       id: user.patient?.id ?? user.id,
+      patientNumber: user.patient?.patientNumber ?? 0,
       email: user.email,
       name: user.name,
       lastName: user.lastName,
@@ -288,6 +290,7 @@ export class PatientService {
 
   private mapToPatientResponseFromPatient(patient: {
     id: string;
+    patientNumber: number;
     gender: string | null;
     birthDate: Date | null;
     address: string | null;
@@ -302,6 +305,7 @@ export class PatientService {
   }): PatientResponseDto {
     return {
       id: patient.id,
+      patientNumber: patient.patientNumber,
       email: patient.user.email,
       name: patient.user.name,
       lastName: patient.user.lastName,

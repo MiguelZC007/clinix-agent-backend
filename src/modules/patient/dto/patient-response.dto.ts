@@ -9,6 +9,12 @@ export class PatientResponseDto {
   id: string;
 
   @ApiProperty({
+    description: 'Número único del paciente',
+    example: 1,
+  })
+  patientNumber: number;
+
+  @ApiProperty({
     description: 'Correo electrónico del paciente',
     example: 'paciente@ejemplo.com',
   })

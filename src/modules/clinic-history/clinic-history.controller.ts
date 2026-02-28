@@ -19,6 +19,7 @@ import { ClinicHistoryService, ClinicHistoryListResultDto } from './clinic-histo
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
+import { PatientClinicHistoryFilterOptionsDto } from './dto/patient-clinic-history-filter-options.dto';
 
 @ApiTags('Clinic Histories')
 @ApiBearerAuth('JWT-auth')
@@ -87,6 +88,21 @@ export class ClinicHistoryController {
 @Controller('patients')
 export class PatientClinicHistoriesController {
   constructor(private readonly clinicHistoryService: ClinicHistoryService) {}
+
+  @Get(':patientId/clinic-histories/filter-options')
+  @ApiOperation({ summary: 'Obtener opciones de filtro para historias clínicas del paciente' })
+  @ApiParam({ name: 'patientId', description: 'ID del paciente (UUID)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Doctores y especialidades presentes en las historias del paciente',
+    type: PatientClinicHistoryFilterOptionsDto,
+  })
+  @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
+  getFilterOptions(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+  ): Promise<PatientClinicHistoryFilterOptionsDto> {
+    return this.clinicHistoryService.getFilterOptionsByPatient(patientId);
+  }
 
   @Get(':patientId/clinic-histories')
   @ApiOperation({ summary: 'Obtener historias clínicas de un paciente' })

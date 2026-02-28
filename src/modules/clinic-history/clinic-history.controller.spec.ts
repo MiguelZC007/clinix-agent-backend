@@ -30,6 +30,9 @@ describe('ClinicHistoryController', () => {
     findByPatient: jest.MockedFunction<
       (this: void, patientId: string) => Promise<ClinicHistoryResponseDto[]>
     >;
+    getFilterOptionsByPatient: jest.MockedFunction<
+      (this: void, patientId: string) => Promise<{ doctors: Array<{ id: string; name: string; lastName: string }>; specialties: Array<{ id: string; name: string }> }>
+    >;
   };
 
   let service: MockClinicHistoryService;
@@ -90,6 +93,7 @@ describe('ClinicHistoryController', () => {
       findAll: jest.fn(),
       findOne: jest.fn(),
       findByPatient: jest.fn(),
+      getFilterOptionsByPatient: jest.fn().mockResolvedValue({ doctors: [], specialties: [] }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -179,6 +183,22 @@ describe('ClinicHistoryController', () => {
 
       expect(service.findByPatient).toHaveBeenCalledWith('patient-uuid');
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('PatientClinicHistoriesController.getFilterOptions', () => {
+    it('debe llamar a clinicHistoryService.getFilterOptionsByPatient con el patientId', async () => {
+      const filterOptions = {
+        doctors: [{ id: 'doctor-uuid', name: 'María', lastName: 'González' }],
+        specialties: [{ id: 'specialty-uuid', name: 'Cardiología' }],
+      };
+      service.getFilterOptionsByPatient.mockResolvedValue(filterOptions);
+
+      const result =
+        await patientClinicHistoriesController.getFilterOptions('patient-uuid');
+
+      expect(service.getFilterOptionsByPatient).toHaveBeenCalledWith('patient-uuid');
+      expect(result).toEqual(filterOptions);
     });
   });
 });

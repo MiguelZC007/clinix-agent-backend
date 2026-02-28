@@ -72,4 +72,22 @@ export class FindAllClinicHistoriesQueryDto {
   @IsOptional()
   @IsDateString()
   dateTo?: string;
+
+  @ApiProperty({
+    description: 'Filtrar por ID de doctor',
+    example: '123e4567-e89b-12d3-a456-426614174001',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID()
+  doctorId?: string;
+
+  @ApiProperty({
+    description: 'Filtrar por ID de especialidad',
+    example: '123e4567-e89b-12d3-a456-426614174002',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID()
+  specialtyId?: string;
 }

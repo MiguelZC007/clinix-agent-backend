@@ -18,6 +18,7 @@ import {
   ClinicHistoryPatientDto,
   ClinicHistoryDoctorDto,
 } from './dto/clinic-history-response.dto';
+import { PatientClinicHistoryFilterOptionsDto } from './dto/patient-clinic-history-filter-options.dto';
 
 export interface ClinicHistoryListResultDto {
   items: ClinicHistoryResponseDto[];
@@ -332,6 +333,55 @@ export class ClinicHistoryService {
     return clinicHistories.map((ch) => this.mapToClinicHistoryResponse(ch));
   }
 
+  async getFilterOptionsByPatient(
+    patientId: string,
+  ): Promise<PatientClinicHistoryFilterOptionsDto> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+    });
+    if (!patient) {
+      throw new NotFoundException('patient-not-found');
+    }
+
+    const withDoctors = await this.prisma.clinicHistory.findMany({
+      where: { patientId },
+      distinct: ['doctorId'],
+      select: {
+        doctor: {
+          select: {
+            id: true,
+            user: { select: { name: true, lastName: true } },
+          },
+        },
+      },
+    });
+    const doctors = withDoctors
+      .filter((row) => row.doctor != null)
+      .map((row) => ({
+        id: row.doctor!.id,
+        name: row.doctor!.user.name,
+        lastName: row.doctor!.user.lastName,
+      }));
+
+    const withSpecialties = await this.prisma.clinicHistory.findMany({
+      where: { patientId },
+      distinct: ['specialtyId'],
+      select: {
+        specialty: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+    const specialties = withSpecialties
+      .filter((row) => row.specialty != null)
+      .map((row) => ({
+        id: row.specialty!.id,
+        name: row.specialty!.name,
+      }));
+
+    return { doctors, specialties };
+  }
+
   private buildFindAllWhere(
     query: FindAllClinicHistoriesQueryDto,
   ): Prisma.ClinicHistoryWhereInput {
@@ -401,6 +451,14 @@ export class ClinicHistoryService {
         createdAt.lte = endOfDay;
       }
       conditions.push({ createdAt });
+    }
+
+    if (query.doctorId) {
+      conditions.push({ doctorId: query.doctorId });
+    }
+
+    if (query.specialtyId) {
+      conditions.push({ specialtyId: query.specialtyId });
     }
 
     if (conditions.length === 0) return {};
