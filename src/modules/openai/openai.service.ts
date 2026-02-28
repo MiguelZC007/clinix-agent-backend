@@ -1017,25 +1017,13 @@ REGLAS ESTRICTAS:
     return lines.join('\n');
   }
 
-  private async ensurePatientOwnership(
-    patientId: string,
-    doctorId: string,
-  ): Promise<void> {
+  private async ensurePatientExists(patientId: string): Promise<void> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
-      select: { id: true, registeredByDoctorId: true },
+      select: { id: true },
     });
     if (!patient) {
       throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
-    }
-    if (patient.registeredByDoctorId === doctorId) {
-      return;
-    }
-    const hasAppointment = await this.prisma.appointment.findFirst({
-      where: { patientId, doctorId },
-    });
-    if (!hasAppointment) {
-      throw new ForbiddenException('patient-not-owned-by-doctor');
     }
   }
 
@@ -1049,20 +1037,13 @@ REGLAS ESTRICTAS:
   }
 
   private async resolvePatientIdByName(
-    doctorId: string,
+    _doctorId: string,
     nameInput: string,
   ): Promise<string> {
     if (nameInput == null || typeof nameInput !== 'string' || nameInput.trim() === '') {
       throw new BadRequestException('appointment-use-id-not-name');
     }
-    const doctorFilter = {
-      OR: [
-        { appointments: { some: { doctorId } } },
-        { registeredByDoctorId: doctorId },
-      ],
-    };
     const patients = await this.prisma.patient.findMany({
-      where: doctorFilter,
       include: { user: { select: { name: true, lastName: true } } },
     });
     const normalized = this.normalizeForNameMatch(nameInput);
@@ -1085,19 +1066,13 @@ REGLAS ESTRICTAS:
   }
 
   private async resolvePatientIdByNumber(
-    doctorId: string,
+    _doctorId: string,
     numberInput: string,
   ): Promise<string | null> {
     const n = Number.parseInt(numberInput.trim(), 10);
     if (Number.isNaN(n) || n < 1) return null;
-    const doctorFilter = {
-      OR: [
-        { appointments: { some: { doctorId } } },
-        { registeredByDoctorId: doctorId },
-      ],
-    };
     const patients = await this.prisma.patient.findMany({
-      where: { AND: [doctorFilter, { patientNumber: n }] },
+      where: { patientNumber: n },
       select: { id: true },
     });
     if (patients.length === 1) return patients[0].id;
@@ -1400,14 +1375,7 @@ REGLAS ESTRICTAS:
         const query = args.query as string | undefined;
         const searchTerm =
           typeof query === 'string' && query.trim() !== '' ? query.trim() : null;
-        const doctorFilter = {
-          OR: [
-            { appointments: { some: { doctorId } } },
-            { registeredByDoctorId: doctorId },
-          ],
-        };
         let patients = await this.prisma.patient.findMany({
-          where: doctorFilter,
           orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
             user: { select: { name: true, lastName: true } },
@@ -1442,14 +1410,7 @@ REGLAS ESTRICTAS:
         if (!searchTerm) {
           return [];
         }
-        const doctorFilter = {
-          OR: [
-            { appointments: { some: { doctorId } } },
-            { registeredByDoctorId: doctorId },
-          ],
-        };
         let patients = await this.prisma.patient.findMany({
-          where: doctorFilter,
           take: 200,
           orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
@@ -1485,12 +1446,11 @@ REGLAS ESTRICTAS:
         if (!patient) {
           throw new NotFoundException('patient-not-found');
         }
-        await this.ensurePatientOwnership(patient.id, doctorId);
         return patient;
       }
 
       case 'update_patient': {
-        await this.ensurePatientOwnership(args.patientId as string, doctorId);
+        await this.ensurePatientExists(args.patientId as string);
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -1513,14 +1473,14 @@ REGLAS ESTRICTAS:
       }
 
       case 'delete_patient': {
-        await this.ensurePatientOwnership(args.patientId as string, doctorId);
+        await this.ensurePatientExists(args.patientId as string);
         return this.prisma.patient.delete({
           where: { id: args.patientId as string },
         });
       }
 
       case 'get_patient_antecedents': {
-        await this.ensurePatientOwnership(args.patientId as string, doctorId);
+        await this.ensurePatientExists(args.patientId as string);
         return this.prisma.patient.findUnique({
           where: { id: args.patientId as string },
           select: {
@@ -1533,7 +1493,7 @@ REGLAS ESTRICTAS:
       }
 
       case 'update_patient_antecedents': {
-        await this.ensurePatientOwnership(args.patientId as string, doctorId);
+        await this.ensurePatientExists(args.patientId as string);
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -1572,7 +1532,7 @@ REGLAS ESTRICTAS:
         if (!patient) {
           throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
         }
-        await this.ensurePatientOwnership(patientId, doctorId);
+        await this.ensurePatientExists(patientId);
 
         const specialty = await this.prisma.specialty.findUnique({
           where: { id: specialtyId },

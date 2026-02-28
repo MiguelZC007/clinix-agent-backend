@@ -333,7 +333,6 @@ describe('OpenaiService', () => {
 
       expect(mockPrisma.patient.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.any(Object),
           take: 200,
           orderBy: expect.any(Array),
           include: expect.any(Object),
@@ -691,19 +690,9 @@ describe('OpenaiService', () => {
       expect(mockPrisma.patient.findMany).toHaveBeenCalled();
       const findManyCall = mockPrisma.patient.findMany.mock
         .calls[0] as Array<unknown>;
-      const whereArg = (findManyCall[0] as { where?: { OR?: unknown[] } })?.where;
-      expect(whereArg).toBeDefined();
-      expect(whereArg?.OR).toBeDefined();
-      expect(Array.isArray(whereArg?.OR)).toBe(true);
-      expect((whereArg?.OR ?? []).length).toBeGreaterThanOrEqual(2);
-      const hasAppointments = (whereArg?.OR ?? []).some(
-        (o) => o && typeof o === 'object' && 'appointments' in o,
-      );
-      const hasRegisteredBy = (whereArg?.OR ?? []).some(
-        (o) => o && typeof o === 'object' && 'registeredByDoctorId' in o,
-      );
-      expect(hasAppointments).toBe(true);
-      expect(hasRegisteredBy).toBe(true);
+      const callArg = findManyCall[0] as { orderBy?: unknown; include?: unknown };
+      expect(callArg.orderBy).toBeDefined();
+      expect(callArg.include).toBeDefined();
     });
 
     it('create_appointment con paciente inexistente no llama a appointment.create y devuelve error al LLM', async () => {
