@@ -14,7 +14,11 @@ describe('PatientController', () => {
   let controller: PatientController;
   type MockPatientService = {
     create: jest.MockedFunction<
-      (this: void, dto: CreatePatientDto, doctorId?: string) => Promise<PatientResponseDto>
+      (
+        this: void,
+        dto: CreatePatientDto,
+        doctorId?: string,
+      ) => Promise<PatientResponseDto>
     >;
     findAll: jest.MockedFunction<
       (
@@ -24,26 +28,36 @@ describe('PatientController', () => {
       ) => Promise<PatientListResultDto>
     >;
     findOne: jest.MockedFunction<
-      (this: void, id: string) => Promise<PatientResponseDto>
+      (this: void, id: string, doctorId: string) => Promise<PatientResponseDto>
     >;
     update: jest.MockedFunction<
       (
         this: void,
         id: string,
         dto: UpdatePatientDto,
+        doctorId: string,
       ) => Promise<PatientResponseDto>
     >;
     remove: jest.MockedFunction<
-      (this: void, id: string) => Promise<{ deleted: true; id: string }>
+      (
+        this: void,
+        id: string,
+        doctorId: string,
+      ) => Promise<{ deleted: true; id: string }>
     >;
     getAntecedents: jest.MockedFunction<
-      (this: void, id: string) => Promise<PatientAntecedentsDto>
+      (
+        this: void,
+        id: string,
+        doctorId: string,
+      ) => Promise<PatientAntecedentsDto>
     >;
     updateAntecedents: jest.MockedFunction<
       (
         this: void,
         id: string,
         dto: UpdatePatientAntecedentsDto,
+        doctorId: string,
       ) => Promise<PatientAntecedentsDto>
     >;
   };
@@ -52,6 +66,7 @@ describe('PatientController', () => {
 
   const mockPatientResponse: PatientResponseDto = {
     id: 'patient-uuid',
+    patientNumber: 1,
     email: 'test@example.com',
     name: 'Juan',
     lastName: 'Pérez',
@@ -139,58 +154,80 @@ describe('PatientController', () => {
   });
 
   describe('findOne', () => {
-    it('debe llamar a patientService.findOne con el ID', async () => {
+    it('debe llamar a patientService.findOne con el ID y doctorId', async () => {
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
       service.findOne.mockResolvedValue(mockPatientResponse);
 
-      const result = await controller.findOne('patient-uuid');
+      const result = await controller.findOne('patient-uuid', mockUser);
 
-      expect(service.findOne).toHaveBeenCalledWith('patient-uuid');
+      expect(service.findOne).toHaveBeenCalledWith(
+        'patient-uuid',
+        'doctor-uuid',
+      );
       expect(result).toEqual(mockPatientResponse);
     });
   });
 
   describe('update', () => {
-    it('debe llamar a patientService.update con ID y DTO', async () => {
+    it('debe llamar a patientService.update con ID, DTO y doctorId', async () => {
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
       const updateDto: UpdatePatientDto = { name: 'Juan Carlos' };
       service.update.mockResolvedValue({
         ...mockPatientResponse,
         name: 'Juan Carlos',
       });
 
-      const result = await controller.update('patient-uuid', updateDto);
+      const result = await controller.update(
+        'patient-uuid',
+        updateDto,
+        mockUser,
+      );
 
-      expect(service.update).toHaveBeenCalledWith('patient-uuid', updateDto);
+      expect(service.update).toHaveBeenCalledWith(
+        'patient-uuid',
+        updateDto,
+        'doctor-uuid',
+      );
       expect(result.name).toBe('Juan Carlos');
     });
   });
 
   describe('remove', () => {
-    it('debe llamar a patientService.remove con el ID', async () => {
+    it('debe llamar a patientService.remove con el ID y doctorId', async () => {
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
       service.remove.mockResolvedValue({
         deleted: true,
         id: 'patient-uuid',
       });
 
-      const result = await controller.remove('patient-uuid');
+      const result = await controller.remove('patient-uuid', mockUser);
 
-      expect(service.remove).toHaveBeenCalledWith('patient-uuid');
+      expect(service.remove).toHaveBeenCalledWith(
+        'patient-uuid',
+        'doctor-uuid',
+      );
       expect(result).toEqual({ deleted: true, id: 'patient-uuid' });
     });
   });
 
   describe('getAntecedents', () => {
-    it('debe llamar a patientService.getAntecedents con el ID', async () => {
+    it('debe llamar a patientService.getAntecedents con el ID y doctorId', async () => {
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
       service.getAntecedents.mockResolvedValue(mockAntecedents);
 
-      const result = await controller.getAntecedents('patient-uuid');
+      const result = await controller.getAntecedents('patient-uuid', mockUser);
 
-      expect(service.getAntecedents).toHaveBeenCalledWith('patient-uuid');
+      expect(service.getAntecedents).toHaveBeenCalledWith(
+        'patient-uuid',
+        'doctor-uuid',
+      );
       expect(result).toEqual(mockAntecedents);
     });
   });
 
   describe('updateAntecedents', () => {
-    it('debe llamar a patientService.updateAntecedents con ID y DTO', async () => {
+    it('debe llamar a patientService.updateAntecedents con ID, DTO y doctorId', async () => {
+      const mockUser = { doctor: { id: 'doctor-uuid' } };
       const updateDto: UpdatePatientAntecedentsDto = {
         allergies: ['penicilina', 'sulfas'],
       };
@@ -202,11 +239,13 @@ describe('PatientController', () => {
       const result = await controller.updateAntecedents(
         'patient-uuid',
         updateDto,
+        mockUser,
       );
 
       expect(service.updateAntecedents).toHaveBeenCalledWith(
         'patient-uuid',
         updateDto,
+        'doctor-uuid',
       );
       expect(result.allergies).toEqual(['penicilina', 'sulfas']);
     });

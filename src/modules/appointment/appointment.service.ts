@@ -19,7 +19,7 @@ import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 
 @Injectable()
 export class AppointmentService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findSpecialties(): Promise<SpecialtyItemDto[]> {
     const rows = await this.prisma.specialty.findMany({
@@ -65,47 +65,51 @@ export class AppointmentService {
       throw new BadRequestException('invalid-date-range');
     }
 
-    const conflictingAppointment = await this.prisma.appointment.findFirst({
-      where: {
-        doctorId,
-        status: {
-          in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+    // NOTE: This check + create is wrapped in a transaction to reduce race condition risk,
+    // but without a DB-level exclusion constraint, simultaneous requests could still overlap.
+    const appointment = await this.prisma.$transaction(async (tx) => {
+      const conflictingAppointment = await tx.appointment.findFirst({
+        where: {
+          doctorId,
+          status: {
+            in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+          },
+          OR: [
+            {
+              startAppointment: { lte: startDate },
+              endAppointment: { gt: startDate },
+            },
+            {
+              startAppointment: { lt: endDate },
+              endAppointment: { gte: endDate },
+            },
+            {
+              startAppointment: { gte: startDate },
+              endAppointment: { lte: endDate },
+            },
+          ],
         },
-        OR: [
-          {
-            startAppointment: { lte: startDate },
-            endAppointment: { gt: startDate },
-          },
-          {
-            startAppointment: { lt: endDate },
-            endAppointment: { gte: endDate },
-          },
-          {
-            startAppointment: { gte: startDate },
-            endAppointment: { lte: endDate },
-          },
-        ],
-      },
-    });
+      });
 
-    if (conflictingAppointment) {
-      throw new ConflictException('appointment-conflict');
-    }
+      if (conflictingAppointment) {
+        throw new ConflictException('appointment-conflict');
+      }
 
-    const appointment = await this.prisma.appointment.create({
-      data: {
-        patientId: createAppointmentDto.patientId,
-        doctorId,
-        specialtyId: createAppointmentDto.specialtyId,
-        reason: createAppointmentDto.reason,
-        startAppointment: startDate,
-        endAppointment: endDate,
-        status: StatusAppointment.PENDING,
-      },
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-      },
+      return tx.appointment.create({
+        data: {
+          patientId: createAppointmentDto.patientId,
+          doctorId,
+          specialtyId: createAppointmentDto.specialtyId,
+          reason: createAppointmentDto.reason,
+          startAppointment: startDate,
+          endAppointment: endDate,
+          status: StatusAppointment.PENDING,
+        },
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+        },
+      });
     });
 
     return this.mapToAppointmentResponse(appointment);
@@ -222,44 +226,63 @@ export class AppointmentService {
         throw new BadRequestException('invalid-date-range');
       }
 
-      const conflictingAppointment = await this.prisma.appointment.findFirst({
-        where: {
-          id: { not: id },
-          doctorId: existingAppointment.doctorId,
-          status: {
-            in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+      // NOTE: This check + update is wrapped in a transaction to reduce race condition risk,
+      // but without a DB-level exclusion constraint, simultaneous requests could still overlap.
+      const appointment = await this.prisma.$transaction(async (tx) => {
+        const conflict = await tx.appointment.findFirst({
+          where: {
+            id: { not: id },
+            doctorId: existingAppointment.doctorId,
+            status: {
+              in: [StatusAppointment.PENDING, StatusAppointment.CONFIRMED],
+            },
+            OR: [
+              {
+                startAppointment: { lte: startDate },
+                endAppointment: { gt: startDate },
+              },
+              {
+                startAppointment: { lt: endDate },
+                endAppointment: { gte: endDate },
+              },
+              {
+                startAppointment: { gte: startDate },
+                endAppointment: { lte: endDate },
+              },
+            ],
           },
-          OR: [
-            {
-              startAppointment: { lte: startDate },
-              endAppointment: { gt: startDate },
-            },
-            {
-              startAppointment: { lt: endDate },
-              endAppointment: { gte: endDate },
-            },
-            {
-              startAppointment: { gte: startDate },
-              endAppointment: { lte: endDate },
-            },
-          ],
-        },
+        });
+
+        if (conflict) {
+          throw new ConflictException('appointment-conflict');
+        }
+
+        return tx.appointment.update({
+          where: { id },
+          data: {
+            startAppointment: updateAppointmentDto.startAppointment
+              ? new Date(updateAppointmentDto.startAppointment)
+              : undefined,
+            endAppointment: updateAppointmentDto.endAppointment
+              ? new Date(updateAppointmentDto.endAppointment)
+              : undefined,
+            status: updateAppointmentDto.status,
+            reason: updateAppointmentDto.reason,
+          },
+          include: {
+            patient: { include: { user: true } },
+            doctor: { include: { user: true, specialty: true } },
+          },
+        });
       });
 
-      if (conflictingAppointment) {
-        throw new ConflictException('appointment-conflict');
-      }
+      return this.mapToAppointmentResponse(appointment);
     }
 
+    // If no date changes, just update the other fields outside a transaction
     const appointment = await this.prisma.appointment.update({
       where: { id },
       data: {
-        startAppointment: updateAppointmentDto.startAppointment
-          ? new Date(updateAppointmentDto.startAppointment)
-          : undefined,
-        endAppointment: updateAppointmentDto.endAppointment
-          ? new Date(updateAppointmentDto.endAppointment)
-          : undefined,
         status: updateAppointmentDto.status,
         reason: updateAppointmentDto.reason,
       },

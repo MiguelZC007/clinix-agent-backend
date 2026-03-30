@@ -2,7 +2,9 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -11,6 +13,7 @@ import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
 import { PatientListQueryDto } from './dto/patient-list-query.dto';
 import { Gender } from 'src/core/enum/gender.enum';
+import environment from 'src/core/config/environments';
 
 export interface PatientListResultDto {
   items: PatientResponseDto[];
@@ -22,50 +25,59 @@ export interface PatientListResultDto {
 
 @Injectable()
 export class PatientService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(
     createPatientDto: CreatePatientDto,
     doctorId?: string,
   ): Promise<PatientResponseDto> {
-    const existingUser = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: createPatientDto.email },
-          { phone: createPatientDto.phone },
-        ],
-      },
-    });
+    // Password is optional - patients can be created without a password
+    const hashedPassword = createPatientDto.password
+      ? await bcrypt.hash(createPatientDto.password, environment.SALT_ROUND)
+      : undefined;
 
-    if (existingUser) {
-      throw new ConflictException('user-already-exists');
-    }
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existingUser = await tx.user.findFirst({
+        where: {
+          OR: [
+            { email: createPatientDto.email },
+            { phone: createPatientDto.phone },
+          ],
+        },
+      });
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: createPatientDto.email,
-        name: createPatientDto.name,
-        lastName: createPatientDto.lastName,
-        phone: createPatientDto.phone,
-        password: createPatientDto.password,
-        patient: {
-          create: {
-            registeredByDoctorId: doctorId ?? undefined,
-            address: createPatientDto.address,
-            gender: createPatientDto.gender,
-            birthDate: createPatientDto.birthDate
-              ? new Date(createPatientDto.birthDate)
-              : null,
-            allergies: [],
-            medications: [],
-            medicalHistory: [],
-            familyHistory: [],
+      if (existingUser) {
+        throw new ConflictException('user-already-exists');
+      }
+
+      return tx.user.create({
+        data: {
+          email: createPatientDto.email,
+          name: createPatientDto.name,
+          lastName: createPatientDto.lastName,
+          phone: createPatientDto.phone,
+          password: hashedPassword,
+          patient: {
+            create: {
+              registeredByDoctorId: doctorId ?? undefined,
+              address: createPatientDto.address,
+              gender: createPatientDto.gender,
+              birthDate:
+                createPatientDto.birthDate &&
+                createPatientDto.birthDate.trim() !== ''
+                  ? new Date(createPatientDto.birthDate)
+                  : null,
+              allergies: [],
+              medications: [],
+              medicalHistory: [],
+              familyHistory: [],
+            },
           },
         },
-      },
-      include: {
-        patient: true,
-      },
+        include: {
+          patient: true,
+        },
+      });
     });
 
     return this.mapToPatientResponse(user);
@@ -73,7 +85,7 @@ export class PatientService {
 
   async findAll(
     query: PatientListQueryDto,
-    _doctorId: string,
+    doctorId: string,
   ): Promise<PatientListResultDto> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
@@ -81,16 +93,19 @@ export class PatientService {
 
     const searchFilter = search
       ? {
-        user: {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' as const } },
-            { lastName: { contains: search, mode: 'insensitive' as const } },
-            { phone: { contains: search } },
-          ],
-        },
-      }
+          user: {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' as const } },
+              { lastName: { contains: search, mode: 'insensitive' as const } },
+              { phone: { contains: search } },
+            ],
+          },
+        }
       : {};
-    const where = searchFilter;
+    const where = {
+      ...searchFilter,
+      registeredByDoctorId: doctorId,
+    };
 
     const [patients, total] = await this.prisma.$transaction([
       this.prisma.patient.findMany({
@@ -113,7 +128,7 @@ export class PatientService {
     };
   }
 
-  async findOne(id: string): Promise<PatientResponseDto> {
+  async findOne(id: string, doctorId: string): Promise<PatientResponseDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
       include: {
@@ -123,6 +138,10 @@ export class PatientService {
 
     if (!patient) {
       throw new NotFoundException('patient-not-found');
+    }
+
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
     }
 
     return this.mapToPatientResponseFromPatient(patient);
@@ -131,63 +150,83 @@ export class PatientService {
   async update(
     id: string,
     updatePatientDto: UpdatePatientDto,
+    doctorId: string,
   ): Promise<PatientResponseDto> {
-    const patient = await this.prisma.patient.findUnique({
-      where: { id },
-      include: { user: true },
-    });
+    const hashedPassword = updatePatientDto.password
+      ? await bcrypt.hash(updatePatientDto.password, environment.SALT_ROUND)
+      : undefined;
 
-    if (!patient) {
-      throw new NotFoundException('patient-not-found');
-    }
-
-    if (updatePatientDto.email || updatePatientDto.phone) {
-      const existingUser = await this.prisma.user.findFirst({
-        where: {
-          AND: [
-            { id: { not: patient.userId } },
-            {
-              OR: [
-                updatePatientDto.email ? { email: updatePatientDto.email } : {},
-                updatePatientDto.phone ? { phone: updatePatientDto.phone } : {},
-              ].filter((obj) => Object.keys(obj).length > 0),
-            },
-          ],
-        },
+    const updatedPatient = await this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({
+        where: { id },
+        include: { user: true },
       });
 
-      if (existingUser) {
-        throw new ConflictException('user-already-exists');
+      if (!patient) {
+        throw new NotFoundException('patient-not-found');
       }
-    }
 
-    const updatedPatient = await this.prisma.patient.update({
-      where: { id },
-      data: {
-        address: updatePatientDto.address,
-        gender: updatePatientDto.gender,
-        birthDate: updatePatientDto.birthDate
-          ? new Date(updatePatientDto.birthDate)
-          : undefined,
-        user: {
-          update: {
-            email: updatePatientDto.email,
-            name: updatePatientDto.name,
-            lastName: updatePatientDto.lastName,
-            phone: updatePatientDto.phone,
-            password: updatePatientDto.password,
+      if (patient.registeredByDoctorId !== doctorId) {
+        throw new ForbiddenException('patient-not-owned-by-doctor');
+      }
+
+      if (updatePatientDto.email || updatePatientDto.phone) {
+        const existingUser = await tx.user.findFirst({
+          where: {
+            AND: [
+              { id: { not: patient.userId } },
+              {
+                OR: [
+                  updatePatientDto.email
+                    ? { email: updatePatientDto.email }
+                    : {},
+                  updatePatientDto.phone
+                    ? { phone: updatePatientDto.phone }
+                    : {},
+                ].filter((obj) => Object.keys(obj).length > 0),
+              },
+            ],
+          },
+        });
+
+        if (existingUser) {
+          throw new ConflictException('user-already-exists');
+        }
+      }
+
+      return tx.patient.update({
+        where: { id },
+        data: {
+          address: updatePatientDto.address,
+          gender: updatePatientDto.gender,
+          birthDate:
+            updatePatientDto.birthDate &&
+            updatePatientDto.birthDate.trim() !== ''
+              ? new Date(updatePatientDto.birthDate)
+              : null,
+          user: {
+            update: {
+              email: updatePatientDto.email,
+              name: updatePatientDto.name,
+              lastName: updatePatientDto.lastName,
+              phone: updatePatientDto.phone,
+              password: hashedPassword,
+            },
           },
         },
-      },
-      include: {
-        user: true,
-      },
+        include: {
+          user: true,
+        },
+      });
     });
 
     return this.mapToPatientResponseFromPatient(updatedPatient);
   }
 
-  async remove(id: string): Promise<{ deleted: true; id: string }> {
+  async remove(
+    id: string,
+    doctorId: string,
+  ): Promise<{ deleted: true; id: string }> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
     });
@@ -196,21 +235,32 @@ export class PatientService {
       throw new NotFoundException('patient-not-found');
     }
 
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
+    }
+
     await this.prisma.$transaction([
-      this.prisma.patient.delete({ where: { id } }),
       this.prisma.user.delete({ where: { id: patient.userId } }),
+      this.prisma.patient.delete({ where: { id } }),
     ]);
 
     return { deleted: true, id };
   }
 
-  async getAntecedents(id: string): Promise<PatientAntecedentsDto> {
+  async getAntecedents(
+    id: string,
+    doctorId: string,
+  ): Promise<PatientAntecedentsDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
     });
 
     if (!patient) {
       throw new NotFoundException('patient-not-found');
+    }
+
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
     }
 
     return {
@@ -226,6 +276,7 @@ export class PatientService {
   async updateAntecedents(
     id: string,
     updateAntecedentsDto: UpdatePatientAntecedentsDto,
+    doctorId: string,
   ): Promise<PatientAntecedentsDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id },
@@ -233,6 +284,10 @@ export class PatientService {
 
     if (!patient) {
       throw new NotFoundException('patient-not-found');
+    }
+
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
     }
 
     const updatedPatient = await this.prisma.patient.update({
@@ -257,6 +312,10 @@ export class PatientService {
     };
   }
 
+  /**
+   * Maps a user with nested patient to PatientResponseDto.
+   * Consolidated utility function - delegates to mapToPatientResponseFromPatient.
+   */
   private mapToPatientResponse(user: {
     id: string;
     email: string;
@@ -273,21 +332,40 @@ export class PatientService {
       address: string | null;
     } | null;
   }): PatientResponseDto {
-    return {
-      id: user.patient?.id ?? user.id,
-      patientNumber: user.patient?.patientNumber ?? 0,
-      email: user.email,
-      name: user.name,
-      lastName: user.lastName,
-      phone: user.phone,
-      gender: user.patient?.gender as Gender | undefined,
-      birthDate: user.patient?.birthDate ?? undefined,
-      address: user.patient?.address ?? undefined,
+    if (!user.patient) {
+      // Fallback for when patient data is not available
+      return {
+        id: user.id,
+        patientNumber: 0,
+        email: user.email,
+        name: user.name,
+        lastName: user.lastName,
+        phone: user.phone,
+        gender: undefined,
+        birthDate: undefined,
+        address: undefined,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      };
+    }
+    // Transform to the format expected by mapToPatientResponseFromPatient
+    return this.mapToPatientResponseFromPatient({
+      ...user.patient,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-    };
+      user: {
+        email: user.email,
+        name: user.name,
+        lastName: user.lastName,
+        phone: user.phone,
+      },
+    });
   }
 
+  /**
+   * Primary mapping function for patient responses.
+   * All patient mapping operations should use this function.
+   */
   private mapToPatientResponseFromPatient(patient: {
     id: string;
     patientNumber: number;

@@ -72,6 +72,7 @@ describe('TwilioController', () => {
     it('debe procesar webhook y retornar respuesta', async () => {
       const webhookData = {
         MessageSid: 'SM123',
+        AccountSid: 'ACtest123',
         From: 'whatsapp:+584241234567',
         To: 'whatsapp:+14155238886',
         Body: 'Hola',
@@ -86,7 +87,9 @@ describe('TwilioController', () => {
         status: jest.fn<MockResponse, [number]>(),
         end: mockEnd,
       };
-      mockResponse.status.mockReturnValue(mockResponse as unknown as Response);
+      mockResponse.status.mockReturnValue(
+        mockResponse as unknown as MockResponse,
+      );
 
       const processResult = {
         success: true,
@@ -125,7 +128,9 @@ describe('TwilioController', () => {
         json: jest.fn<void, [unknown]>(),
         end: mockEnd,
       };
-      mockResponse.status.mockReturnValue(mockResponse as unknown as Response);
+      mockResponse.status.mockReturnValue(
+        mockResponse as unknown as MockResponse,
+      );
 
       service.processIncomingMessage.mockRejectedValue(new Error('Test error'));
 

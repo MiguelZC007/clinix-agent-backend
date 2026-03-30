@@ -38,6 +38,11 @@ export class CreateClinicHistoryDto {
   @MaxLength(1000, {
     message: 'El motivo de consulta no puede exceder 1000 caracteres',
   })
+  /**
+   * @deprecated The 'reason' field is legacy and will be removed in a future version.
+   * Use 'consultationReason' instead. This transform maintains backward compatibility
+   * during the migration period (target removal: v2.0).
+   */
   @Transform(({ obj, value }: TransformFnParams): string => {
     if (typeof value === 'string') return value;
     const legacyReason = (obj as { reason?: unknown }).reason;

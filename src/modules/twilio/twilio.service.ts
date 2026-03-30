@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
   Inject,
   forwardRef,
+  OnModuleInit,
 } from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -28,15 +29,17 @@ export interface ProcessIncomingMessageResult {
 }
 
 @Injectable()
-export class TwilioService {
+export class TwilioService implements OnModuleInit {
   private readonly logger = new Logger(TwilioService.name);
-  private twilioClient: twilio.Twilio;
+  private twilioClient!: twilio.Twilio;
 
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => ReplyMessageHandler))
     private readonly replyMessageHandler: ReplyMessageHandler,
-  ) {
+  ) {}
+
+  onModuleInit(): void {
     const accountSid = environment.TWILIO_ACCOUNT_SID;
     const authToken = environment.TWILIO_AUTH_TOKEN;
 
@@ -297,10 +300,7 @@ export class TwilioService {
         to: toNormalized,
         contentSid,
       };
-      if (
-        contentVariables &&
-        Object.keys(contentVariables).length > 0
-      ) {
+      if (contentVariables && Object.keys(contentVariables).length > 0) {
         createParams.contentVariables = JSON.stringify(contentVariables);
       }
 
@@ -325,7 +325,10 @@ export class TwilioService {
     }
   }
 
-  async updateLastInbound(channelNumber: string, userPhone: string): Promise<void> {
+  async updateLastInbound(
+    channelNumber: string,
+    userPhone: string,
+  ): Promise<void> {
     await this.prisma.whatsAppContactWindow.upsert({
       where: {
         channelNumber_userPhone: {
@@ -356,7 +359,8 @@ export class TwilioService {
       },
     });
     if (!row) return false;
-    const hoursSince = (Date.now() - row.lastInboundAt.getTime()) / (1000 * 60 * 60);
+    const hoursSince =
+      (Date.now() - row.lastInboundAt.getTime()) / (1000 * 60 * 60);
     return hoursSince < 24;
   }
 

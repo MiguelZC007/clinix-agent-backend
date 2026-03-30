@@ -92,6 +92,14 @@ describe('AuthService', () => {
       >;
       expect(findUniqueCalls[0]?.[0]).toEqual({
         where: { phone: mockLoginDto.phone },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          lastName: true,
+          phone: true,
+          password: true,
+        },
       });
       expect(bcrypt.compare).toHaveBeenCalledWith(
         mockLoginDto.password,
@@ -127,7 +135,7 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       await expect(service.login(mockLoginDto)).rejects.toThrow(
-        'user-without-password',
+        'invalid-credentials',
       );
     });
 
@@ -230,7 +238,7 @@ describe('AuthService', () => {
       const result = await service.hashPassword(password);
 
       expect(result).toBe(hashedPassword);
-      expect(bcrypt.hash).toHaveBeenCalledWith(password, 10);
+      expect(bcrypt.hash).toHaveBeenCalledWith(password, expect.any(Number));
     });
   });
 });

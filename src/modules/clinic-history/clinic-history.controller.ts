@@ -15,7 +15,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
-import { ClinicHistoryService, ClinicHistoryListResultDto } from './clinic-history.service';
+import { User } from 'src/core/decorators/user.decorator';
+import { getDoctorId } from 'src/common/utils/get-doctor-id.util';
+import {
+  ClinicHistoryService,
+  ClinicHistoryListResultDto,
+} from './clinic-history.service';
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
 import { ClinicHistoryResponseDto } from './dto/clinic-history-response.dto';
@@ -42,8 +47,10 @@ export class ClinicHistoryController {
   })
   create(
     @Body() createClinicHistoryDto: CreateClinicHistoryDto,
+    @User() user: unknown,
   ): Promise<ClinicHistoryResponseDto> {
-    return this.clinicHistoryService.create(createClinicHistoryDto);
+    const doctorId = getDoctorId(user);
+    return this.clinicHistoryService.create(createClinicHistoryDto, doctorId);
   }
 
   @Get()
@@ -54,7 +61,10 @@ export class ClinicHistoryController {
     schema: {
       type: 'object',
       properties: {
-        items: { type: 'array', items: { $ref: '#/components/schemas/ClinicHistoryResponseDto' } },
+        items: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/ClinicHistoryResponseDto' },
+        },
         page: { type: 'number' },
         pageSize: { type: 'number' },
         total: { type: 'number' },
@@ -64,8 +74,10 @@ export class ClinicHistoryController {
   })
   findAll(
     @Query() query: FindAllClinicHistoriesQueryDto,
+    @User() user: unknown,
   ): Promise<ClinicHistoryListResultDto> {
-    return this.clinicHistoryService.findAll(query);
+    const doctorId = getDoctorId(user);
+    return this.clinicHistoryService.findAll(query, doctorId);
   }
 
   @Get(':id')
@@ -79,29 +91,40 @@ export class ClinicHistoryController {
   @ApiResponse({ status: 404, description: 'Historia clínica no encontrada' })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
+    @User() user: unknown,
   ): Promise<ClinicHistoryResponseDto> {
-    return this.clinicHistoryService.findOne(id);
+    const doctorId = getDoctorId(user);
+    return this.clinicHistoryService.findOne(id, doctorId);
   }
 }
 
 @ApiTags('Patients')
+@ApiBearerAuth('JWT-auth')
 @Controller('patients')
 export class PatientClinicHistoriesController {
   constructor(private readonly clinicHistoryService: ClinicHistoryService) {}
 
   @Get(':patientId/clinic-histories/filter-options')
-  @ApiOperation({ summary: 'Obtener opciones de filtro para historias clínicas del paciente' })
+  @ApiOperation({
+    summary: 'Obtener opciones de filtro para historias clínicas del paciente',
+  })
   @ApiParam({ name: 'patientId', description: 'ID del paciente (UUID)' })
   @ApiResponse({
     status: 200,
-    description: 'Doctores y especialidades presentes en las historias del paciente',
+    description:
+      'Doctores y especialidades presentes en las historias del paciente',
     type: PatientClinicHistoryFilterOptionsDto,
   })
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
   getFilterOptions(
     @Param('patientId', ParseUUIDPipe) patientId: string,
+    @User() user: unknown,
   ): Promise<PatientClinicHistoryFilterOptionsDto> {
-    return this.clinicHistoryService.getFilterOptionsByPatient(patientId);
+    const doctorId = getDoctorId(user);
+    return this.clinicHistoryService.getFilterOptionsByPatient(
+      patientId,
+      doctorId,
+    );
   }
 
   @Get(':patientId/clinic-histories')
@@ -115,7 +138,9 @@ export class PatientClinicHistoriesController {
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
   findByPatient(
     @Param('patientId', ParseUUIDPipe) patientId: string,
+    @User() user: unknown,
   ): Promise<ClinicHistoryResponseDto[]> {
-    return this.clinicHistoryService.findByPatient(patientId);
+    const doctorId = getDoctorId(user);
+    return this.clinicHistoryService.findByPatient(patientId, doctorId);
   }
 }

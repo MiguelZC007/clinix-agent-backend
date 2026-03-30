@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -34,87 +35,103 @@ export class ClinicHistoryService {
 
   async create(
     createClinicHistoryDto: CreateClinicHistoryDto,
+    doctorId: string,
   ): Promise<ClinicHistoryResponseDto> {
-    const appointment = await this.prisma.appointment.findUnique({
-      where: { id: createClinicHistoryDto.appointmentId },
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-        clinicHistory: true,
-      },
-    });
-
-    if (!appointment) {
-      throw new NotFoundException('appointment-not-found');
-    }
-
-    if (appointment.clinicHistory) {
-      throw new ConflictException('appointment-already-has-clinic-history');
-    }
-
-    const clinicHistory = await this.prisma.clinicHistory.create({
-      data: {
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-        specialtyId: appointment.specialtyId,
-        appointmentId: createClinicHistoryDto.appointmentId,
-        consultationReason: createClinicHistoryDto.consultationReason,
-        symptoms: createClinicHistoryDto.symptoms,
-        treatment: createClinicHistoryDto.treatment,
-        diagnostics: {
-          create: createClinicHistoryDto.diagnostics.map((d) => ({
-            name: d.name,
-            description: d.description,
-          })),
+    const clinicHistory = await this.prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.findUnique({
+        where: { id: createClinicHistoryDto.appointmentId },
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+          clinicHistory: true,
         },
-        physicalExams: {
-          create: createClinicHistoryDto.physicalExams.map((p) => ({
-            name: p.name,
-            description: p.description,
-          })),
-        },
-        vitalSigns: {
-          create: createClinicHistoryDto.vitalSigns.map((v) => ({
-            name: v.name,
-            value: v.value,
-            unit: v.unit,
-            measurement: v.measurement,
-            description: v.description,
-          })),
-        },
-        prescription: createClinicHistoryDto.prescription
-          ? {
-              create: {
-                name: createClinicHistoryDto.prescription.name,
-                description: createClinicHistoryDto.prescription.description,
-                prescriptionMedications: {
-                  create: createClinicHistoryDto.prescription.medications.map(
-                    (m) => ({
-                      name: m.name,
-                      quantity: m.quantity,
-                      unit: m.unit,
-                      frequency: m.frequency,
-                      duration: m.duration,
-                      indications: m.indications,
-                      administrationRoute: m.administrationRoute,
-                      description: m.description,
-                    }),
-                  ),
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('appointment-not-found');
+      }
+
+      if (appointment.clinicHistory) {
+        throw new ConflictException('appointment-already-has-clinic-history');
+      }
+
+      if (appointment.doctorId !== doctorId) {
+        throw new ForbiddenException('clinic-history-not-owned-by-doctor');
+      }
+
+      // Verify patient belongs to the requesting doctor
+      const patient = await tx.patient.findUnique({
+        where: { id: appointment.patientId },
+        select: { registeredByDoctorId: true },
+      });
+      if (!patient || patient.registeredByDoctorId !== doctorId) {
+        throw new ForbiddenException('patient-not-owned-by-doctor');
+      }
+
+      return tx.clinicHistory.create({
+        data: {
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          specialtyId: appointment.specialtyId,
+          appointmentId: createClinicHistoryDto.appointmentId,
+          consultationReason: createClinicHistoryDto.consultationReason,
+          symptoms: createClinicHistoryDto.symptoms,
+          treatment: createClinicHistoryDto.treatment,
+          diagnostics: {
+            create: createClinicHistoryDto.diagnostics.map((d) => ({
+              name: d.name,
+              description: d.description,
+            })),
+          },
+          physicalExams: {
+            create: createClinicHistoryDto.physicalExams.map((p) => ({
+              name: p.name,
+              description: p.description,
+            })),
+          },
+          vitalSigns: {
+            create: createClinicHistoryDto.vitalSigns.map((v) => ({
+              name: v.name,
+              value: v.value,
+              unit: v.unit,
+              measurement: v.measurement,
+              description: v.description,
+            })),
+          },
+          prescription: createClinicHistoryDto.prescription
+            ? {
+                create: {
+                  name: createClinicHistoryDto.prescription.name,
+                  description: createClinicHistoryDto.prescription.description,
+                  prescriptionMedications: {
+                    create: createClinicHistoryDto.prescription.medications.map(
+                      (m) => ({
+                        name: m.name,
+                        quantity: m.quantity,
+                        unit: m.unit,
+                        frequency: m.frequency,
+                        duration: m.duration,
+                        indications: m.indications,
+                        administrationRoute: m.administrationRoute,
+                        description: m.description,
+                      }),
+                    ),
+                  },
                 },
-              },
-            }
-          : undefined,
-      },
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-        diagnostics: true,
-        physicalExams: true,
-        vitalSigns: true,
-        prescription: {
-          include: { prescriptionMedications: true },
+              }
+            : undefined,
         },
-      },
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+          diagnostics: true,
+          physicalExams: true,
+          vitalSigns: true,
+          prescription: {
+            include: { prescriptionMedications: true },
+          },
+        },
+      });
     });
 
     return this.mapToClinicHistoryResponse(clinicHistory);
@@ -124,139 +141,154 @@ export class ClinicHistoryService {
     doctorId: string,
     dto: CreateClinicHistoryWithoutAppointmentDto,
   ): Promise<ClinicHistoryResponseDto> {
-    let resolvedPatientId: string;
-    let resolvedSpecialtyId: string;
+    const clinicHistory = await this.prisma.$transaction(async (tx) => {
+      let resolvedPatientId: string;
+      let resolvedSpecialtyId: string;
 
-    const useNumbers =
-      typeof dto.patientNumber === 'number' &&
-      Number.isInteger(dto.patientNumber) &&
-      typeof dto.specialtyCode === 'number' &&
-      Number.isInteger(dto.specialtyCode);
+      const useNumbers =
+        typeof dto.patientNumber === 'number' &&
+        Number.isInteger(dto.patientNumber) &&
+        typeof dto.specialtyCode === 'number' &&
+        Number.isInteger(dto.specialtyCode);
 
-    let patient: { id: string };
-    let specialty: { id: string };
+      let patient: { id: string };
+      let specialty: { id: string };
 
-    if (useNumbers) {
-      const patientByNumber = await this.prisma.patient.findUnique({
-        where: { patientNumber: dto.patientNumber },
-      });
-      if (!patientByNumber) {
-        throw new NotFoundException('patient-not-found');
+      if (useNumbers) {
+        const patientByNumber = await tx.patient.findUnique({
+          where: { patientNumber: dto.patientNumber },
+        });
+        if (!patientByNumber) {
+          throw new NotFoundException('patient-not-found');
+        }
+        if (patientByNumber.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
+        const specialtyByCode = await tx.specialty.findUnique({
+          where: { specialtyCode: dto.specialtyCode },
+        });
+        if (!specialtyByCode) {
+          throw new NotFoundException('specialty-not-found');
+        }
+        patient = patientByNumber;
+        specialty = specialtyByCode;
+        resolvedPatientId = patient.id;
+        resolvedSpecialtyId = specialty.id;
+      } else {
+        if (dto.patientId == null || dto.specialtyId == null) {
+          throw new NotFoundException('patient-not-found');
+        }
+        resolvedPatientId = dto.patientId;
+        resolvedSpecialtyId = dto.specialtyId;
+        const patientFound = await tx.patient.findUnique({
+          where: { id: resolvedPatientId },
+        });
+        if (!patientFound) {
+          throw new NotFoundException('patient-not-found');
+        }
+        if (patientFound.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
+        patient = patientFound;
+        const specialtyFound = await tx.specialty.findUnique({
+          where: { id: resolvedSpecialtyId },
+        });
+        if (!specialtyFound) {
+          throw new NotFoundException('specialty-not-found');
+        }
+        specialty = specialtyFound;
       }
-      const specialtyByCode = await this.prisma.specialty.findUnique({
-        where: { specialtyCode: dto.specialtyCode },
-      });
-      if (!specialtyByCode) {
-        throw new NotFoundException('specialty-not-found');
-      }
-      patient = patientByNumber;
-      specialty = specialtyByCode;
-      resolvedPatientId = patient.id;
-      resolvedSpecialtyId = specialty.id;
-    } else {
-      if (dto.patientId == null || dto.specialtyId == null) {
-        throw new NotFoundException('patient-not-found');
-      }
-      resolvedPatientId = dto.patientId;
-      resolvedSpecialtyId = dto.specialtyId;
-      const patientFound = await this.prisma.patient.findUnique({
-        where: { id: resolvedPatientId },
-      });
-      if (!patientFound) {
-        throw new NotFoundException('patient-not-found');
-      }
-      patient = patientFound;
-      const specialtyFound = await this.prisma.specialty.findUnique({
-        where: { id: resolvedSpecialtyId },
-      });
-      if (!specialtyFound) {
-        throw new NotFoundException('specialty-not-found');
-      }
-      specialty = specialtyFound;
-    }
 
-    const doctor = await this.prisma.doctor.findUnique({
-      where: { id: doctorId },
-      include: { specialty: true },
-    });
-    if (!doctor) {
-      throw new NotFoundException('specialty-not-found');
-    }
-    const clinicHistory = await this.prisma.clinicHistory.create({
-      data: {
-        patientId: resolvedPatientId,
-        doctorId,
-        specialtyId: resolvedSpecialtyId,
-        appointmentId: null,
-        consultationReason: dto.consultationReason,
-        symptoms: dto.symptoms,
-        treatment: dto.treatment,
-        diagnostics: {
-          create: dto.diagnostics.map((d) => ({
-            name: d.name,
-            description: d.description,
-          })),
-        },
-        physicalExams: {
-          create: dto.physicalExams.map((p) => ({
-            name: p.name,
-            description: p.description,
-          })),
-        },
-        vitalSigns: {
-          create: dto.vitalSigns.map((v) => ({
-            name: v.name,
-            value: v.value,
-            unit: v.unit,
-            measurement: v.measurement,
-            description: v.description,
-          })),
-        },
-        prescription: dto.prescription
-          ? {
-              create: {
-                name: dto.prescription.name,
-                description: dto.prescription.description,
-                prescriptionMedications: {
-                  create: dto.prescription.medications.map((m) => ({
-                    name: m.name,
-                    quantity: m.quantity,
-                    unit: m.unit,
-                    frequency: m.frequency,
-                    duration: m.duration,
-                    indications: m.indications,
-                    administrationRoute: m.administrationRoute,
-                    description: m.description,
-                  })),
+      const doctor = await tx.doctor.findUnique({
+        where: { id: doctorId },
+        include: { specialty: true },
+      });
+      if (!doctor) {
+        throw new NotFoundException('doctor-not-found');
+      }
+
+      return tx.clinicHistory.create({
+        data: {
+          patientId: resolvedPatientId,
+          doctorId,
+          specialtyId: resolvedSpecialtyId,
+          appointmentId: null,
+          consultationReason: dto.consultationReason,
+          symptoms: dto.symptoms,
+          treatment: dto.treatment,
+          diagnostics: {
+            create: dto.diagnostics.map((d) => ({
+              name: d.name,
+              description: d.description,
+            })),
+          },
+          physicalExams: {
+            create: dto.physicalExams.map((p) => ({
+              name: p.name,
+              description: p.description,
+            })),
+          },
+          vitalSigns: {
+            create: dto.vitalSigns.map((v) => ({
+              name: v.name,
+              value: v.value,
+              unit: v.unit,
+              measurement: v.measurement,
+              description: v.description,
+            })),
+          },
+          prescription: dto.prescription
+            ? {
+                create: {
+                  name: dto.prescription.name,
+                  description: dto.prescription.description,
+                  prescriptionMedications: {
+                    create: dto.prescription.medications.map((m) => ({
+                      name: m.name,
+                      quantity: m.quantity,
+                      unit: m.unit,
+                      frequency: m.frequency,
+                      duration: m.duration,
+                      indications: m.indications,
+                      administrationRoute: m.administrationRoute,
+                      description: m.description,
+                    })),
+                  },
                 },
-              },
-            }
-          : undefined,
-      },
-      include: {
-        patient: { include: { user: true } },
-        doctor: { include: { user: true, specialty: true } },
-        diagnostics: true,
-        physicalExams: true,
-        vitalSigns: true,
-        prescription: {
-          include: { prescriptionMedications: true },
+              }
+            : undefined,
         },
-      },
+        include: {
+          patient: { include: { user: true } },
+          doctor: { include: { user: true, specialty: true } },
+          diagnostics: true,
+          physicalExams: true,
+          vitalSigns: true,
+          prescription: {
+            include: { prescriptionMedications: true },
+          },
+        },
+      });
     });
+
     return this.mapToClinicHistoryResponse(clinicHistory);
   }
 
   async findAll(
     query: FindAllClinicHistoriesQueryDto,
+    doctorId: string,
   ): Promise<ClinicHistoryListResultDto> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
     const where = this.buildFindAllWhere(query);
+    const whereWithDoctor = {
+      ...where,
+      doctorId,
+    };
 
     const [clinicHistories, total] = await this.prisma.$transaction([
       this.prisma.clinicHistory.findMany({
-        where,
+        where: whereWithDoctor,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -271,10 +303,12 @@ export class ClinicHistoryService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.clinicHistory.count({ where }),
+      this.prisma.clinicHistory.count({ where: whereWithDoctor }),
     ]);
 
-    const items = clinicHistories.map((ch) => this.mapToClinicHistoryResponse(ch));
+    const items = clinicHistories.map((ch) =>
+      this.mapToClinicHistoryResponse(ch),
+    );
     return {
       items,
       page,
@@ -284,7 +318,10 @@ export class ClinicHistoryService {
     };
   }
 
-  async findOne(id: string): Promise<ClinicHistoryResponseDto> {
+  async findOne(
+    id: string,
+    doctorId: string,
+  ): Promise<ClinicHistoryResponseDto> {
     const clinicHistory = await this.prisma.clinicHistory.findUnique({
       where: { id },
       include: {
@@ -303,10 +340,17 @@ export class ClinicHistoryService {
       throw new NotFoundException('clinic-history-not-found');
     }
 
+    if (clinicHistory.doctorId !== doctorId) {
+      throw new ForbiddenException('clinic-history-not-owned-by-doctor');
+    }
+
     return this.mapToClinicHistoryResponse(clinicHistory);
   }
 
-  async findByPatient(patientId: string): Promise<ClinicHistoryResponseDto[]> {
+  async findByPatient(
+    patientId: string,
+    doctorId: string,
+  ): Promise<ClinicHistoryResponseDto[]> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
     });
@@ -315,8 +359,12 @@ export class ClinicHistoryService {
       throw new NotFoundException('patient-not-found');
     }
 
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
+    }
+
     const clinicHistories = await this.prisma.clinicHistory.findMany({
-      where: { patientId },
+      where: { patientId, doctorId },
       include: {
         patient: { include: { user: true } },
         doctor: { include: { user: true, specialty: true } },
@@ -335,6 +383,7 @@ export class ClinicHistoryService {
 
   async getFilterOptionsByPatient(
     patientId: string,
+    doctorId: string,
   ): Promise<PatientClinicHistoryFilterOptionsDto> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -343,8 +392,12 @@ export class ClinicHistoryService {
       throw new NotFoundException('patient-not-found');
     }
 
+    if (patient.registeredByDoctorId !== doctorId) {
+      throw new ForbiddenException('patient-not-owned-by-doctor');
+    }
+
     const withDoctors = await this.prisma.clinicHistory.findMany({
-      where: { patientId },
+      where: { patientId, doctorId },
       distinct: ['doctorId'],
       select: {
         doctor: {
@@ -364,7 +417,7 @@ export class ClinicHistoryService {
       }));
 
     const withSpecialties = await this.prisma.clinicHistory.findMany({
-      where: { patientId },
+      where: { patientId, doctorId },
       distinct: ['specialtyId'],
       select: {
         specialty: {

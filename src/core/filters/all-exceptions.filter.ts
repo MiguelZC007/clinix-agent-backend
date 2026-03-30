@@ -21,7 +21,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
 
     const stack = exception instanceof Error ? exception.stack : undefined;
-    this.logger.error('Unhandled exception', stack);
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      this.logger.error('Unhandled exception');
+    } else {
+      this.logger.error('Unhandled exception', stack);
+    }
 
     const code = ErrorCode.UNKNOWN;
     const errorInfo = this.getErrorInfoFromCode(code);

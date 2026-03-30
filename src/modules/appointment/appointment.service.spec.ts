@@ -77,6 +77,21 @@ describe('AppointmentService', () => {
       reason: 'Consulta de control',
     };
 
+    beforeEach(() => {
+      // Set up $transaction mock for callback form
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            appointment: {
+              findFirst: prisma.appointment.findFirst,
+              create: prisma.appointment.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
+    });
+
     it('debe crear una cita exitosamente', async () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
@@ -224,9 +239,9 @@ describe('AppointmentService', () => {
     it('debe lanzar NotFoundException si la cita no existe', async () => {
       prisma.appointment.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.findOne('invalid-uuid', doctorId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOne('invalid-uuid', doctorId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar ForbiddenException si la cita es de otro doctor', async () => {
@@ -303,9 +318,9 @@ describe('AppointmentService', () => {
     it('debe lanzar NotFoundException si la cita no existe', async () => {
       prisma.appointment.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.cancel('invalid-uuid', doctorId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.cancel('invalid-uuid', doctorId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('debe lanzar ForbiddenException si la cita es de otro doctor', async () => {

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import OpenAI from 'openai';
@@ -388,7 +389,7 @@ const appointmentTools: ChatCompletionTool[] = [
     function: {
       name: 'getTodaysAppointments',
       description:
-        'Retrieve today\'s appointments for the authenticated doctor. Optional date in ISO 8601 format to query another day.',
+        "Retrieve today's appointments for the authenticated doctor. Optional date in ISO 8601 format to query another day.",
       parameters: {
         type: 'object',
         properties: {
@@ -695,6 +696,14 @@ REGLAS ESTRICTAS:
     private readonly appointmentService: AppointmentService,
     private readonly clinicHistoryService: ClinicHistoryService,
   ) {
+    if (
+      !environment.OPENAI_API_KEY ||
+      environment.OPENAI_API_KEY.trim() === ''
+    ) {
+      throw new Error(
+        'OPENAI_API_KEY is not configured. Please set the OPENAI_API_KEY environment variable.',
+      );
+    }
     this.openai = new OpenAI({
       apiKey: environment.OPENAI_API_KEY,
     });
@@ -705,7 +714,8 @@ REGLAS ESTRICTAS:
     userMessage: string,
     context?: DoctorContext,
   ): Promise<string> {
-    const doctorId = context?.doctorId ?? (await this.resolveDoctorId(phoneNumber));
+    const doctorId =
+      context?.doctorId ?? (await this.resolveDoctorId(phoneNumber));
 
     const { conversation, messages: contextMessages } =
       await this.conversationService.getOrCreateActiveConversation(
@@ -719,13 +729,8 @@ REGLAS ESTRICTAS:
       userMessage,
     );
 
-    const systemContent =
-      context?.authToken != null
-        ? `${this.systemPrompt}\n\nconversationContext.authToken = ${context.authToken}`
-        : this.systemPrompt;
-
     const chatMessages: ChatMessage[] = [
-      { role: 'system', content: systemContent },
+      { role: 'system', content: this.systemPrompt },
       ...contextMessages,
       { role: 'user', content: userMessage },
     ];
@@ -755,13 +760,8 @@ REGLAS ESTRICTAS:
         doctorId,
       );
 
-    const systemContent =
-      context?.authToken != null
-        ? `${this.systemPrompt}\n\nconversationContext.authToken = ${context.authToken}`
-        : this.systemPrompt;
-
     const chatMessages: ChatMessage[] = [
-      { role: 'system', content: systemContent },
+      { role: 'system', content: this.systemPrompt },
       ...contextMessages,
     ];
 
@@ -857,10 +857,10 @@ REGLAS ESTRICTAS:
           error,
           message,
         });
-        this.logger.debug(
-          `Tool call output: ${functionName} error`,
-          { error, message },
-        );
+        this.logger.debug(`Tool call output: ${functionName} error`, {
+          error,
+          message,
+        });
       }
 
       toolResults.push({
@@ -894,10 +894,24 @@ REGLAS ESTRICTAS:
     );
   }
 
-  private sanitizeToolArgs(args: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeToolArgs(
+    args: Record<string, unknown>,
+  ): Record<string, unknown> {
     const sanitized = { ...args };
     if ('password' in sanitized) {
       sanitized.password = '[REDACTED]';
+    }
+    if ('email' in sanitized) {
+      sanitized.email = '[REDACTED]';
+    }
+    if ('phone' in sanitized) {
+      sanitized.phone = '[REDACTED]';
+    }
+    if ('name' in sanitized) {
+      sanitized.name = '[REDACTED]';
+    }
+    if ('lastName' in sanitized) {
+      sanitized.lastName = '[REDACTED]';
     }
     return sanitized;
   }
@@ -955,8 +969,7 @@ REGLAS ESTRICTAS:
         'Ya existe una cita en ese horario. Elija otra fecha u hora.',
       [ErrorCode.INVALID_DATE_RANGE]:
         'La hora de fin debe ser posterior a la hora de inicio.',
-      [ErrorCode.APPOINTMENT_ALREADY_CANCELLED]:
-        'La cita ya está cancelada.',
+      [ErrorCode.APPOINTMENT_ALREADY_CANCELLED]: 'La cita ya está cancelada.',
       'appointment-cannot-cancel-completed':
         'No se puede cancelar una cita ya completada.',
       'appointment-use-id-not-name':
@@ -975,7 +988,9 @@ REGLAS ESTRICTAS:
     if (exception instanceof HttpException) {
       const response = exception.getResponse();
       const code =
-        typeof response === 'object' && response !== null && 'message' in response
+        typeof response === 'object' &&
+        response !== null &&
+        'message' in response
           ? Array.isArray((response as { message: unknown }).message)
             ? String((response as { message: unknown[] }).message[0])
             : String((response as { message: unknown }).message)
@@ -994,8 +1009,7 @@ REGLAS ESTRICTAS:
 
     return {
       error: ErrorCode.UNKNOWN,
-      message:
-        'Ocurrió un error al procesar la solicitud. Intente de nuevo.',
+      message: 'Ocurrió un error al procesar la solicitud. Intente de nuevo.',
     };
   }
 
@@ -1037,18 +1051,39 @@ REGLAS ESTRICTAS:
   }
 
   private async resolvePatientIdByName(
-    _doctorId: string,
+    doctorId: string,
     nameInput: string,
   ): Promise<string> {
-    if (nameInput == null || typeof nameInput !== 'string' || nameInput.trim() === '') {
+    if (
+      nameInput == null ||
+      typeof nameInput !== 'string' ||
+      nameInput.trim() === ''
+    ) {
       throw new BadRequestException('appointment-use-id-not-name');
     }
+    const normalized = this.normalizeForNameMatch(nameInput);
     const patients = await this.prisma.patient.findMany({
+      where: {
+        registeredByDoctorId: doctorId,
+        OR: [
+          {
+            user: {
+              name: { contains: normalized, mode: 'insensitive' },
+            },
+          },
+          {
+            user: {
+              lastName: { contains: normalized, mode: 'insensitive' },
+            },
+          },
+        ],
+      },
       include: { user: { select: { name: true, lastName: true } } },
     });
-    const normalized = this.normalizeForNameMatch(nameInput);
     const matches = patients.filter((p) => {
-      const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
+      const full = this.normalizeForNameMatch(
+        `${p.user.name} ${p.user.lastName}`,
+      );
       const nameNorm = this.normalizeForNameMatch(p.user.name);
       const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
       return (
@@ -1066,13 +1101,13 @@ REGLAS ESTRICTAS:
   }
 
   private async resolvePatientIdByNumber(
-    _doctorId: string,
+    doctorId: string,
     numberInput: string,
   ): Promise<string | null> {
     const n = Number.parseInt(numberInput.trim(), 10);
     if (Number.isNaN(n) || n < 1) return null;
     const patients = await this.prisma.patient.findMany({
-      where: { patientNumber: n },
+      where: { patientNumber: n, registeredByDoctorId: doctorId },
       select: { id: true },
     });
     if (patients.length === 1) return patients[0].id;
@@ -1080,7 +1115,11 @@ REGLAS ESTRICTAS:
   }
 
   private async resolveSpecialtyIdByName(nameInput: string): Promise<string> {
-    if (nameInput == null || typeof nameInput !== 'string' || nameInput.trim() === '') {
+    if (
+      nameInput == null ||
+      typeof nameInput !== 'string' ||
+      nameInput.trim() === ''
+    ) {
       throw new BadRequestException('appointment-use-id-not-name');
     }
     const specialties = await this.prisma.specialty.findMany({
@@ -1144,20 +1183,22 @@ REGLAS ESTRICTAS:
         })
       : [];
     const prescriptionRaw = args.prescription;
-    let prescription: {
-      name: string;
-      description: string;
-      medications: Array<{
-        name: string;
-        quantity: number;
-        unit: string;
-        frequency: string;
-        duration: string;
-        indications: string;
-        administrationRoute: string;
-        description?: string;
-      }>;
-    } | undefined;
+    let prescription:
+      | {
+          name: string;
+          description: string;
+          medications: Array<{
+            name: string;
+            quantity: number;
+            unit: string;
+            frequency: string;
+            duration: string;
+            indications: string;
+            administrationRoute: string;
+            description?: string;
+          }>;
+        }
+      | undefined;
     if (
       prescriptionRaw != null &&
       typeof prescriptionRaw === 'object' &&
@@ -1254,20 +1295,22 @@ REGLAS ESTRICTAS:
         })
       : [];
     const prescriptionRaw = args.prescription;
-    let prescription: {
-      name: string;
-      description: string;
-      medications: Array<{
-        name: string;
-        quantity: number;
-        unit: string;
-        frequency: string;
-        duration: string;
-        indications: string;
-        administrationRoute: string;
-        description?: string;
-      }>;
-    } | undefined;
+    let prescription:
+      | {
+          name: string;
+          description: string;
+          medications: Array<{
+            name: string;
+            quantity: number;
+            unit: string;
+            frequency: string;
+            duration: string;
+            indications: string;
+            administrationRoute: string;
+            description?: string;
+          }>;
+        }
+      | undefined;
     if (
       prescriptionRaw != null &&
       typeof prescriptionRaw === 'object' &&
@@ -1308,7 +1351,9 @@ REGLAS ESTRICTAS:
       Number.isInteger(patientNumber) &&
       Number.isInteger(specialtyCode);
     const plain = {
-      ...(useNumbers ? { patientNumber, specialtyCode } : { patientId, specialtyId }),
+      ...(useNumbers
+        ? { patientNumber, specialtyCode }
+        : { patientId, specialtyId }),
       consultationReason: String(args.consultationReason ?? ''),
       symptoms,
       treatment: String(args.treatment ?? ''),
@@ -1340,13 +1385,17 @@ REGLAS ESTRICTAS:
   ): Promise<unknown> {
     switch (functionName) {
       case 'register_patient': {
+        const rawPassword = args.password as string | undefined;
+        const hashedPassword = rawPassword
+          ? await bcrypt.hash(rawPassword, environment.SALT_ROUND)
+          : undefined;
         return this.prisma.user.create({
           data: {
             email: args.email as string,
             name: args.name as string,
             lastName: args.lastName as string,
             phone: args.phone as string,
-            password: args.password as string | undefined,
+            password: hashedPassword,
             patient: {
               create: {
                 registeredByDoctorId: doctorId,
@@ -1374,27 +1423,32 @@ REGLAS ESTRICTAS:
       case 'search_patients': {
         const query = args.query as string | undefined;
         const searchTerm =
-          typeof query === 'string' && query.trim() !== '' ? query.trim() : null;
-        let patients = await this.prisma.patient.findMany({
+          typeof query === 'string' && query.trim() !== ''
+            ? query.trim()
+            : null;
+        const patients = await this.prisma.patient.findMany({
+          where: {
+            registeredByDoctorId: doctorId,
+            ...(searchTerm && {
+              OR: [
+                {
+                  user: {
+                    name: { contains: searchTerm, mode: 'insensitive' },
+                  },
+                },
+                {
+                  user: {
+                    lastName: { contains: searchTerm, mode: 'insensitive' },
+                  },
+                },
+              ],
+            }),
+          },
           orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
             user: { select: { name: true, lastName: true } },
           },
         });
-        if (searchTerm) {
-          const normalized = this.normalizeForNameMatch(searchTerm);
-          patients = patients.filter((p) => {
-            const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
-            const nameNorm = this.normalizeForNameMatch(p.user.name);
-            const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
-            return (
-              full === normalized ||
-              full.includes(normalized) ||
-              nameNorm.includes(normalized) ||
-              lastNameNorm.includes(normalized)
-            );
-          });
-        }
         return patients.map((p) => ({
           id: p.id,
           patientNumber: p.patientNumber,
@@ -1406,32 +1460,40 @@ REGLAS ESTRICTAS:
       case 'get_all_patients': {
         const query = args.query as string | undefined;
         const searchTerm =
-          typeof query === 'string' && query.trim() !== '' ? query.trim() : null;
+          typeof query === 'string' && query.trim() !== ''
+            ? query.trim()
+            : null;
         if (!searchTerm) {
           return [];
         }
-        let patients = await this.prisma.patient.findMany({
-          take: 200,
+        const patients = await this.prisma.patient.findMany({
+          where: {
+            registeredByDoctorId: doctorId,
+            OR: [
+              {
+                user: {
+                  name: { contains: searchTerm, mode: 'insensitive' },
+                },
+              },
+              {
+                user: {
+                  lastName: { contains: searchTerm, mode: 'insensitive' },
+                },
+              },
+            ],
+          },
+          take: 50,
           orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
           include: {
-            user: {
-              select: { name: true, lastName: true, email: true, phone: true },
-            },
+            user: { select: { name: true, lastName: true } },
           },
         });
-        const normalized = this.normalizeForNameMatch(searchTerm);
-        patients = patients.filter((p) => {
-          const full = this.normalizeForNameMatch(`${p.user.name} ${p.user.lastName}`);
-          const nameNorm = this.normalizeForNameMatch(p.user.name);
-          const lastNameNorm = this.normalizeForNameMatch(p.user.lastName);
-          return (
-            full === normalized ||
-            full.includes(normalized) ||
-            nameNorm.includes(normalized) ||
-            lastNameNorm.includes(normalized)
-          );
-        });
-        return patients.slice(0, 50);
+        return patients.map((p) => ({
+          id: p.id,
+          patientNumber: p.patientNumber,
+          name: p.user.name,
+          lastName: p.user.lastName,
+        }));
       }
 
       case 'get_patient': {
@@ -1444,13 +1506,28 @@ REGLAS ESTRICTAS:
           },
         });
         if (!patient) {
-          throw new NotFoundException('patient-not-found');
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        if (patient.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
         }
         return patient;
       }
 
       case 'update_patient': {
-        await this.ensurePatientExists(args.patientId as string);
+        const patient = await this.prisma.patient.findUnique({
+          where: { id: args.patientId as string },
+        });
+        if (!patient) {
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        if (patient.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
+        const rawPassword = args.password as string | undefined;
+        const hashedPassword = rawPassword
+          ? await bcrypt.hash(rawPassword, environment.SALT_ROUND)
+          : undefined;
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -1464,7 +1541,7 @@ REGLAS ESTRICTAS:
                 name: args.name as string | undefined,
                 lastName: args.lastName as string | undefined,
                 phone: args.phone as string | undefined,
-                password: args.password as string | undefined,
+                password: hashedPassword,
               },
             },
           },
@@ -1473,14 +1550,30 @@ REGLAS ESTRICTAS:
       }
 
       case 'delete_patient': {
-        await this.ensurePatientExists(args.patientId as string);
+        const patientToDelete = await this.prisma.patient.findUnique({
+          where: { id: args.patientId as string },
+        });
+        if (!patientToDelete) {
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        if (patientToDelete.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
         return this.prisma.patient.delete({
           where: { id: args.patientId as string },
         });
       }
 
       case 'get_patient_antecedents': {
-        await this.ensurePatientExists(args.patientId as string);
+        const patientForAntecedents = await this.prisma.patient.findUnique({
+          where: { id: args.patientId as string },
+        });
+        if (!patientForAntecedents) {
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        if (patientForAntecedents.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
         return this.prisma.patient.findUnique({
           where: { id: args.patientId as string },
           select: {
@@ -1493,7 +1586,16 @@ REGLAS ESTRICTAS:
       }
 
       case 'update_patient_antecedents': {
-        await this.ensurePatientExists(args.patientId as string);
+        const patientForAntecedentsUpdate =
+          await this.prisma.patient.findUnique({
+            where: { id: args.patientId as string },
+          });
+        if (!patientForAntecedentsUpdate) {
+          throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
+        }
+        if (patientForAntecedentsUpdate.registeredByDoctorId !== doctorId) {
+          throw new ForbiddenException('patient-not-owned-by-doctor');
+        }
         return this.prisma.patient.update({
           where: { id: args.patientId as string },
           data: {
@@ -1513,7 +1615,10 @@ REGLAS ESTRICTAS:
 
         if (!isUUID(patientId)) {
           const numericOnly = /^\d+$/.test(String(patientId).trim());
-          const byNumber = await this.resolvePatientIdByNumber(doctorId, patientId);
+          const byNumber = await this.resolvePatientIdByNumber(
+            doctorId,
+            patientId,
+          );
           if (byNumber) {
             patientId = byNumber;
           } else if (numericOnly) {
@@ -1532,7 +1637,6 @@ REGLAS ESTRICTAS:
         if (!patient) {
           throw new NotFoundException(ErrorCode.PATIENT_NOT_FOUND);
         }
-        await this.ensurePatientExists(patientId);
 
         const specialty = await this.prisma.specialty.findUnique({
           where: { id: specialtyId },
@@ -1647,11 +1751,11 @@ REGLAS ESTRICTAS:
         });
 
       case 'getTodaysAppointments': {
-        const dateArg =
-          typeof args.date === 'string' ? args.date : undefined;
+        const dateArg = typeof args.date === 'string' ? args.date : undefined;
         const todaysAppointments =
           await this.appointmentService.findTodaysByDoctor(doctorId, dateArg);
-        const formatted = this.formatAppointmentsForWhatsApp(todaysAppointments);
+        const formatted =
+          this.formatAppointmentsForWhatsApp(todaysAppointments);
         return { formattedMessage: formatted };
       }
 
@@ -1671,7 +1775,7 @@ REGLAS ESTRICTAS:
             throw new ForbiddenException('appointment-not-owned-by-doctor');
           }
           const dto = await this.mapCreateClinicHistoryArgsToDto(args);
-          return this.clinicHistoryService.create(dto);
+          return this.clinicHistoryService.create(dto, doctorId);
         }
         const patientIdArg =
           typeof args.patientId === 'string' && args.patientId.trim()
@@ -1682,11 +1786,13 @@ REGLAS ESTRICTAS:
             ? args.specialtyId
             : undefined;
         const patientNumberArg =
-          typeof args.patientNumber === 'number' && Number.isInteger(args.patientNumber)
+          typeof args.patientNumber === 'number' &&
+          Number.isInteger(args.patientNumber)
             ? args.patientNumber
             : undefined;
         const specialtyCodeArg =
-          typeof args.specialtyCode === 'number' && Number.isInteger(args.specialtyCode)
+          typeof args.specialtyCode === 'number' &&
+          Number.isInteger(args.specialtyCode)
             ? args.specialtyCode
             : undefined;
 
@@ -1716,6 +1822,9 @@ REGLAS ESTRICTAS:
           if (!patientByNumber) {
             throw new NotFoundException('patient-not-found');
           }
+          if (patientByNumber.registeredByDoctorId !== doctorId) {
+            throw new ForbiddenException('patient-not-owned-by-doctor');
+          }
           const specialtyByCode = await this.prisma.specialty.findUnique({
             where: { specialtyCode: specialtyCodeArg },
           });
@@ -1727,6 +1836,15 @@ REGLAS ESTRICTAS:
         } else {
           resolvedPatientId = patientIdArg as string;
           resolvedSpecialtyId = specialtyIdArg as string;
+          const patientById = await this.prisma.patient.findUnique({
+            where: { id: resolvedPatientId },
+          });
+          if (!patientById) {
+            throw new NotFoundException('patient-not-found');
+          }
+          if (patientById.registeredByDoctorId !== doctorId) {
+            throw new ForbiddenException('patient-not-owned-by-doctor');
+          }
         }
 
         const dtoWithoutAppointment =

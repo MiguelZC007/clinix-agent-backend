@@ -28,16 +28,21 @@ describe('DashboardService', () => {
       { patientId: 'patient-1' },
       { patientId: 'patient-2' },
     ]);
-    prisma.clinicHistory.findMany
-      .mockImplementation((args: { where?: { doctorId?: string }; take?: number }) => {
+    prisma.clinicHistory.findMany.mockImplementation(
+      (args: { where?: { doctorId?: string }; take?: number }) => {
         if (args.take === 5) {
           return Promise.resolve([mockClinicHistoryWithPatient]);
         }
-        return Promise.resolve([{ patientId: 'patient-2' }, { patientId: 'patient-3' }]);
-      });
+        return Promise.resolve([
+          { patientId: 'patient-2' },
+          { patientId: 'patient-3' },
+        ]);
+      },
+    );
     prisma.patient.findMany.mockResolvedValue([]);
     prisma.appointment.count.mockResolvedValue(3);
     prisma.clinicHistory.count.mockResolvedValue(10);
+    prisma.$queryRaw.mockResolvedValue([{ count: BigInt(3) }]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -74,19 +79,6 @@ describe('DashboardService', () => {
     it('debe filtrar todas las consultas por doctorId', async () => {
       await service.getSummary(doctorId);
 
-      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { doctorId },
-          select: { patientId: true },
-        }),
-      );
-      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { doctorId },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        }),
-      );
       expect(prisma.appointment.count).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ doctorId }),
@@ -95,21 +87,23 @@ describe('DashboardService', () => {
       expect(prisma.clinicHistory.count).toHaveBeenCalledWith(
         expect.objectContaining({ where: { doctorId } }),
       );
-      expect(prisma.patient.findMany).toHaveBeenCalledWith(
+      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { registeredByDoctorId: doctorId },
-          select: { id: true },
+          where: { doctorId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
         }),
       );
     });
 
     it('debe calcular patientsCount como unión de pacientes de citas, historias y registrados por doctor', async () => {
       prisma.appointment.findMany.mockResolvedValue([{ patientId: 'p1' }]);
-      prisma.clinicHistory.findMany
-        .mockImplementation((args: { take?: number }) => {
+      prisma.clinicHistory.findMany.mockImplementation(
+        (args: { take?: number }) => {
           if (args.take === 5) return Promise.resolve([]);
           return Promise.resolve([{ patientId: 'p2' }, { patientId: 'p1' }]);
-        });
+        },
+      );
       prisma.patient.findMany.mockResolvedValue([{ id: 'p3' }]);
 
       const result = await service.getSummary(doctorId);

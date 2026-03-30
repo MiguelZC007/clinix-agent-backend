@@ -29,7 +29,7 @@ import { TwilioWebhookGuard } from './guards/twilio-webhook.guard';
 export class TwilioController {
   private readonly logger = new Logger(TwilioController.name);
 
-  constructor(private readonly twilioService: TwilioService) { }
+  constructor(private readonly twilioService: TwilioService) {}
 
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -101,10 +101,15 @@ export class TwilioController {
       limit: 30,
       ttl: 60_000,
       getTracker: (req: Request) =>
-        (req.body as { From?: string } | undefined)?.From ?? req.ip ?? 'unknown',
+        (req.body as { From?: string } | undefined)?.From ??
+        req.ip ??
+        'unknown',
     },
   })
   @HttpCode(HttpStatus.OK)
+  // Note: forbidNonWhitelisted is false because Twilio webhooks may include
+  // additional fields not in our DTO (e.g., MediaUrl0, MediaContentType0) that
+  // we need to access but don't want to explicitly define in the DTO
   @UsePipes(
     new ValidationPipe({
       whitelist: true,
@@ -164,10 +169,7 @@ export class TwilioController {
     this.logger.log(
       `Solicitud Twilio recibida: MessageSid=${webhookData.MessageSid}, From=${webhookData.From}, To=${webhookData.To}, bodyLength=${webhookData.Body?.length ?? 0}, NumMedia=${webhookData.NumMedia ?? 'n/a'}`,
     );
-    this.logger.log(
-      'Datos del webhook:',
-      JSON.stringify(webhookData, null, 2),
-    );
+    this.logger.log('Datos del webhook:', JSON.stringify(webhookData, null, 2));
 
     await this.twilioService.processIncomingMessage(webhookData);
 

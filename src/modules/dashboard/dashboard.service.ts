@@ -9,17 +9,22 @@ const RECENT_CONSULTATIONS_LIMIT = 5;
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(doctorId: string): Promise<DashboardSummaryDto> {
-    const [patientsCount, appointmentsThisWeek, totalHistories, consultationsToday, recentHistories] =
-      await Promise.all([
-        this.patientsCount(doctorId),
-        this.appointmentsThisWeek(doctorId),
-        this.totalHistories(doctorId),
-        this.consultationsToday(doctorId),
-        this.recentConsultations(doctorId, RECENT_CONSULTATIONS_LIMIT),
-      ]);
+    const [
+      patientsCount,
+      appointmentsThisWeek,
+      totalHistories,
+      consultationsToday,
+      recentHistories,
+    ] = await Promise.all([
+      this.patientsCount(doctorId),
+      this.appointmentsThisWeek(doctorId),
+      this.totalHistories(doctorId),
+      this.consultationsToday(doctorId),
+      this.recentConsultations(doctorId, RECENT_CONSULTATIONS_LIMIT),
+    ]);
 
     return {
       patientsCount,
@@ -31,27 +36,19 @@ export class DashboardService {
   }
 
   private async patientsCount(doctorId: string): Promise<number> {
-    const [appointmentPatientIds, historyPatientIds, registeredByDoctorPatientIds] =
-      await Promise.all([
-        this.prisma.appointment.findMany({
-          where: { doctorId },
-          select: { patientId: true },
-        }),
-        this.prisma.clinicHistory.findMany({
-          where: { doctorId },
-          select: { patientId: true },
-        }),
-        this.prisma.patient.findMany({
-          where: { registeredByDoctorId: doctorId },
-          select: { id: true },
-        }),
-      ]);
-    const allIds = new Set<string>([
-      ...appointmentPatientIds.map((a) => a.patientId),
-      ...historyPatientIds.map((h) => h.patientId),
-      ...registeredByDoctorPatientIds.map((p) => p.id),
-    ]);
-    return allIds.size;
+    // Use SQL-level COUNT(DISTINCT ...) to count unique patients across three sources
+    // without loading all records into memory
+    const result = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(DISTINCT patient_id) as count
+      FROM (
+        SELECT patient_id FROM appointments WHERE doctor_id = ${doctorId}
+        UNION
+        SELECT patient_id FROM clinic_histories WHERE doctor_id = ${doctorId}
+        UNION
+        SELECT id as patient_id FROM patients WHERE registered_by_doctor_id = ${doctorId}
+      ) as all_patients
+    `;
+    return Number(result[0]?.count ?? 0);
   }
 
   private getWeekBoundsUTC(): { start: Date; end: Date } {
@@ -69,8 +66,28 @@ export class DashboardService {
 
   private getTodayBoundsUTC(): { start: Date; end: Date } {
     const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+    const start = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
+    );
+    const end = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        23,
+        59,
+        59,
+        999,
+      ),
+    );
     return { start, end };
   }
 

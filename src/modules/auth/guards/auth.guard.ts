@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -19,6 +20,8 @@ interface JwtPayload {
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  private readonly logger = new Logger(AuthGuard.name);
+
   constructor(
     private jwtService: JwtService,
     private reflector: Reflector,
@@ -76,6 +79,9 @@ export class AuthGuard implements CanActivate {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      this.logger.warn(
+        `JWT validation failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
       throw new UnauthorizedException('token-invalid-or-expired');
     }
 

@@ -29,6 +29,8 @@ describe('PatientService', () => {
   const mockPatient = {
     id: 'patient-uuid',
     userId: 'user-uuid',
+    patientNumber: 1,
+    registeredByDoctorId: 'doctor-uuid',
     gender: 'male',
     birthDate: new Date('1990-05-15'),
     address: 'Calle 123',
@@ -68,6 +70,18 @@ describe('PatientService', () => {
     };
 
     it('debe crear un paciente exitosamente', async () => {
+      // Mock $transaction callback form
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: {
+              findFirst: prisma.user.findFirst,
+              create: prisma.user.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({
         ...mockUser,
@@ -83,6 +97,17 @@ describe('PatientService', () => {
     });
 
     it('debe lanzar ConflictException si el email ya existe', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: {
+              findFirst: prisma.user.findFirst,
+              create: prisma.user.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.user.findFirst.mockResolvedValue(mockUser);
 
       await expect(service.create(createDto)).rejects.toThrow(
@@ -91,6 +116,17 @@ describe('PatientService', () => {
     });
 
     it('debe incluir registeredByDoctorId cuando se pasa doctorId', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: {
+              findFirst: prisma.user.findFirst,
+              create: prisma.user.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({
         ...mockUser,
@@ -132,7 +168,7 @@ describe('PatientService', () => {
       expect(result.totalPages).toBe(1);
       expect(prisma.patient.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: {},
+          where: { registeredByDoctorId: 'doctor-uuid' },
         }),
       );
     });
@@ -181,7 +217,7 @@ describe('PatientService', () => {
     it('debe retornar un paciente por ID', async () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
 
-      const result = await service.findOne('patient-uuid');
+      const result = await service.findOne('patient-uuid', 'doctor-uuid');
 
       expect(result).toBeDefined();
       expect(result.id).toBe('patient-uuid');
@@ -190,9 +226,9 @@ describe('PatientService', () => {
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOne('invalid-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.findOne('invalid-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -203,6 +239,20 @@ describe('PatientService', () => {
     };
 
     it('debe actualizar un paciente exitosamente', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            patient: {
+              findUnique: prisma.patient.findUnique,
+              update: prisma.patient.update,
+            },
+            user: {
+              findFirst: prisma.user.findFirst,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.patient.update.mockResolvedValue({
@@ -211,25 +261,61 @@ describe('PatientService', () => {
         user: { ...mockUser, name: 'Juan Carlos' },
       });
 
-      const result = await service.update('patient-uuid', updateDto);
+      const result = await service.update(
+        'patient-uuid',
+        updateDto,
+        'doctor-uuid',
+      );
 
       expect(result.name).toBe('Juan Carlos');
     });
 
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            patient: {
+              findUnique: prisma.patient.findUnique,
+              update: prisma.patient.update,
+            },
+            user: {
+              findFirst: prisma.user.findFirst,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.update('invalid-uuid', updateDto)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.update('invalid-uuid', updateDto, 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('debe lanzar ConflictException si el email ya está en uso', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            patient: {
+              findUnique: prisma.patient.findUnique,
+              update: prisma.patient.update,
+            },
+            user: {
+              findFirst: prisma.user.findFirst,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.user.findFirst.mockResolvedValue({ id: 'other-user' });
 
       await expect(
-        service.update('patient-uuid', { email: 'other@example.com' }),
+        service.update(
+          'patient-uuid',
+          { email: 'other@example.com' },
+          'doctor-uuid',
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -237,9 +323,9 @@ describe('PatientService', () => {
   describe('remove', () => {
     it('debe eliminar un paciente exitosamente', async () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
-      prisma.$transaction.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([null, null] as never);
 
-      const result = await service.remove('patient-uuid');
+      const result = await service.remove('patient-uuid', 'doctor-uuid');
 
       expect(result).toEqual({ deleted: true, id: 'patient-uuid' });
     });
@@ -247,9 +333,9 @@ describe('PatientService', () => {
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.remove('invalid-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.remove('invalid-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -257,7 +343,10 @@ describe('PatientService', () => {
     it('debe retornar los antecedentes del paciente', async () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
 
-      const result = await service.getAntecedents('patient-uuid');
+      const result = await service.getAntecedents(
+        'patient-uuid',
+        'doctor-uuid',
+      );
 
       expect(result.allergies).toEqual(['penicilina']);
       expect(result.medications).toEqual(['aspirina']);
@@ -266,9 +355,9 @@ describe('PatientService', () => {
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.getAntecedents('invalid-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.getAntecedents('invalid-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -287,6 +376,7 @@ describe('PatientService', () => {
       const result = await service.updateAntecedents(
         'patient-uuid',
         updateAntecedentsDto,
+        'doctor-uuid',
       );
 
       expect(result.allergies).toEqual(['penicilina', 'sulfas']);
@@ -296,7 +386,11 @@ describe('PatientService', () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.updateAntecedents('invalid-uuid', updateAntecedentsDto),
+        service.updateAntecedents(
+          'invalid-uuid',
+          updateAntecedentsDto,
+          'doctor-uuid',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });

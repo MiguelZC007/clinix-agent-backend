@@ -9,7 +9,6 @@ import {
   Put,
   Query,
   ParseUUIDPipe,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,7 +19,7 @@ import {
 } from '@nestjs/swagger';
 import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 import { User } from 'src/core/decorators/user.decorator';
-import { ErrorCode } from 'src/core/responses/problem-details.dto';
+import { getDoctorId } from 'src/common/utils/get-doctor-id.util';
 import { PatientService, PatientListResultDto } from './patient.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -29,14 +28,11 @@ import { PatientResponseDto } from './dto/patient-response.dto';
 import { PatientAntecedentsDto } from './dto/patient-antecedents.dto';
 import { PatientListQueryDto } from './dto/patient-list-query.dto';
 
-type DoctorRef = { id: string };
-type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
-
 @ApiTags('Patients')
 @Controller('patients')
 @ApiBearerAuth('JWT-auth')
 export class PatientController {
-  constructor(private readonly patientService: PatientService) { }
+  constructor(private readonly patientService: PatientService) {}
 
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo paciente' })
@@ -47,28 +43,16 @@ export class PatientController {
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   @ApiResponse({ status: 409, description: 'Email o teléfono ya existe' })
-  @ApiResponse({ status: 403, description: 'Solo doctores pueden registrar pacientes' })
+  @ApiResponse({
+    status: 403,
+    description: 'Solo doctores pueden registrar pacientes',
+  })
   create(
     @Body() createPatientDto: CreatePatientDto,
     @User() user: unknown,
   ): Promise<PatientResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.patientService.create(createPatientDto, doctorId);
-  }
-
-  private getDoctorId(user: unknown): string {
-    if (!user || typeof user !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const doctor = (user as AuthenticatedRequestUser).doctor;
-    if (!doctor || typeof doctor !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const id = (doctor as DoctorRef).id;
-    if (typeof id !== 'string' || id.length === 0) {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    return id;
   }
 
   @Get()
@@ -79,7 +63,10 @@ export class PatientController {
     schema: {
       type: 'object',
       properties: {
-        items: { type: 'array', items: { $ref: '#/components/schemas/PatientResponseDto' } },
+        items: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/PatientResponseDto' },
+        },
         page: { type: 'number' },
         pageSize: { type: 'number' },
         total: { type: 'number' },
@@ -91,7 +78,7 @@ export class PatientController {
     @Query() query: PatientListQueryDto,
     @User() user: unknown,
   ): Promise<PatientListResultDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.patientService.findAll(query, doctorId);
   }
 
@@ -104,8 +91,12 @@ export class PatientController {
     type: PatientResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<PatientResponseDto> {
-    return this.patientService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @User() user: unknown,
+  ): Promise<PatientResponseDto> {
+    const doctorId = getDoctorId(user);
+    return this.patientService.findOne(id, doctorId);
   }
 
   @Patch(':id')
@@ -121,8 +112,10 @@ export class PatientController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updatePatientDto: UpdatePatientDto,
+    @User() user: unknown,
   ): Promise<PatientResponseDto> {
-    return this.patientService.update(id, updatePatientDto);
+    const doctorId = getDoctorId(user);
+    return this.patientService.update(id, updatePatientDto, doctorId);
   }
 
   @Delete(':id')
@@ -142,8 +135,10 @@ export class PatientController {
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
+    @User() user: unknown,
   ): Promise<{ deleted: true; id: string }> {
-    return this.patientService.remove(id);
+    const doctorId = getDoctorId(user);
+    return this.patientService.remove(id, doctorId);
   }
 
   @Get(':id/antecedents')
@@ -157,8 +152,10 @@ export class PatientController {
   @ApiResponse({ status: 404, description: 'Paciente no encontrado' })
   getAntecedents(
     @Param('id', ParseUUIDPipe) id: string,
+    @User() user: unknown,
   ): Promise<PatientAntecedentsDto> {
-    return this.patientService.getAntecedents(id);
+    const doctorId = getDoctorId(user);
+    return this.patientService.getAntecedents(id, doctorId);
   }
 
   @Put(':id/antecedents')
@@ -173,7 +170,13 @@ export class PatientController {
   updateAntecedents(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateAntecedentsDto: UpdatePatientAntecedentsDto,
+    @User() user: unknown,
   ): Promise<PatientAntecedentsDto> {
-    return this.patientService.updateAntecedents(id, updateAntecedentsDto);
+    const doctorId = getDoctorId(user);
+    return this.patientService.updateAntecedents(
+      id,
+      updateAntecedentsDto,
+      doctorId,
+    );
   }
 }

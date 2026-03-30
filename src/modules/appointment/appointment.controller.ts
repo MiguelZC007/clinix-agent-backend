@@ -7,7 +7,6 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,7 +16,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { User } from 'src/core/decorators/user.decorator';
-import { ErrorCode } from 'src/core/responses/problem-details.dto';
+import { getDoctorId } from 'src/common/utils/get-doctor-id.util';
 import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -26,32 +25,16 @@ import { PaginationResponseDto } from 'src/core/dto/pagination-response.dto';
 import { FindAppointmentsQueryDto } from './dto/find-appointments-query.dto';
 import { SpecialtyItemDto } from './dto/specialty-item.dto';
 
-type DoctorRef = { id: string };
-type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
-
 @ApiTags('Appointments')
 @Controller('appointments')
 @ApiBearerAuth('JWT-auth')
 export class AppointmentController {
-  constructor(private readonly appointmentService: AppointmentService) { }
-
-  private getDoctorId(user: unknown): string {
-    if (!user || typeof user !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const doctor = (user as AuthenticatedRequestUser).doctor;
-    if (!doctor || typeof doctor !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const id = (doctor as DoctorRef).id;
-    if (typeof id !== 'string' || id.length === 0) {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    return id;
-  }
+  constructor(private readonly appointmentService: AppointmentService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear una nueva cita médica (siempre para el doctor logueado)' })
+  @ApiOperation({
+    summary: 'Crear una nueva cita médica (siempre para el doctor logueado)',
+  })
   @ApiResponse({
     status: 201,
     description: 'Cita creada exitosamente',
@@ -71,7 +54,7 @@ export class AppointmentController {
     @Body() createAppointmentDto: CreateAppointmentDto,
     @User() user: unknown,
   ): Promise<AppointmentResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.create(createAppointmentDto, doctorId);
   }
 
@@ -82,12 +65,15 @@ export class AppointmentController {
     description: 'Lista de citas paginada',
     type: PaginationResponseDto<AppointmentResponseDto>,
   })
-  @ApiResponse({ status: 403, description: 'Solo doctores pueden listar citas' })
+  @ApiResponse({
+    status: 403,
+    description: 'Solo doctores pueden listar citas',
+  })
   findAll(
     @Query() query: FindAppointmentsQueryDto,
     @User() user: unknown,
   ): Promise<PaginationResponseDto<AppointmentResponseDto>> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.findAll(
       doctorId,
       query.page ?? 1,
@@ -111,7 +97,9 @@ export class AppointmentController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener una cita por ID (solo si es del doctor logueado)' })
+  @ApiOperation({
+    summary: 'Obtener una cita por ID (solo si es del doctor logueado)',
+  })
   @ApiParam({ name: 'id', description: 'ID de la cita (UUID)' })
   @ApiResponse({
     status: 200,
@@ -124,12 +112,14 @@ export class AppointmentController {
     @Param('id', ParseUUIDPipe) id: string,
     @User() user: unknown,
   ): Promise<AppointmentResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.findOne(id, doctorId);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar una cita (solo si es del doctor logueado)' })
+  @ApiOperation({
+    summary: 'Actualizar una cita (solo si es del doctor logueado)',
+  })
   @ApiParam({ name: 'id', description: 'ID de la cita (UUID)' })
   @ApiResponse({
     status: 200,
@@ -147,12 +137,14 @@ export class AppointmentController {
     @Body() updateAppointmentDto: UpdateAppointmentDto,
     @User() user: unknown,
   ): Promise<AppointmentResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.update(id, updateAppointmentDto, doctorId);
   }
 
   @Post(':id/cancel')
-  @ApiOperation({ summary: 'Cancelar una cita (solo si es del doctor logueado)' })
+  @ApiOperation({
+    summary: 'Cancelar una cita (solo si es del doctor logueado)',
+  })
   @ApiParam({ name: 'id', description: 'ID de la cita (UUID)' })
   @ApiResponse({
     status: 200,
@@ -166,7 +158,7 @@ export class AppointmentController {
     @Param('id', ParseUUIDPipe) id: string,
     @User() user: unknown,
   ): Promise<AppointmentResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.cancel(id, doctorId);
   }
 }
@@ -175,25 +167,12 @@ export class AppointmentController {
 @Controller('patients')
 @ApiBearerAuth('JWT-auth')
 export class PatientAppointmentsController {
-  constructor(private readonly appointmentService: AppointmentService) { }
-
-  private getDoctorId(user: unknown): string {
-    if (!user || typeof user !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const doctor = (user as AuthenticatedRequestUser).doctor;
-    if (!doctor || typeof doctor !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const id = (doctor as DoctorRef).id;
-    if (typeof id !== 'string' || id.length === 0) {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    return id;
-  }
+  constructor(private readonly appointmentService: AppointmentService) {}
 
   @Get(':patientId/appointments')
-  @ApiOperation({ summary: 'Obtener citas del paciente para el doctor logueado' })
+  @ApiOperation({
+    summary: 'Obtener citas del paciente para el doctor logueado',
+  })
   @ApiParam({ name: 'patientId', description: 'ID del paciente (UUID)' })
   @ApiResponse({
     status: 200,
@@ -206,7 +185,7 @@ export class PatientAppointmentsController {
     @Param('patientId', ParseUUIDPipe) patientId: string,
     @User() user: unknown,
   ): Promise<AppointmentResponseDto[]> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     return this.appointmentService.findByPatient(patientId, doctorId);
   }
 }

@@ -7,21 +7,18 @@ import {
   Patch,
   Post,
   Put,
-  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Conversation, Message } from '@prisma/client';
 import { User } from 'src/core/decorators/user.decorator';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
+import { getDoctorId } from 'src/common/utils/get-doctor-id.util';
 import { ConversationService } from './conversation.service';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { OpenaiService } from './openai.service';
-
-type DoctorRef = { id: string };
-type AuthenticatedRequestUser = { doctor?: DoctorRef | null };
 
 @ApiTags('Conversations')
 @Controller('conversations')
@@ -29,7 +26,7 @@ export class ConversationsController {
   constructor(
     private readonly conversationService: ConversationService,
     private readonly openaiService: OpenaiService,
-  ) { }
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar conversaciones del doctor autenticado' })
@@ -39,11 +36,10 @@ export class ConversationsController {
     type: [ConversationResponseDto],
   })
   async findAll(@User() user: unknown): Promise<ConversationResponseDto[]> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     const conversations =
       await this.conversationService.listConversationsByDoctorId(doctorId);
-    const contextTokenLimit =
-      this.conversationService.getContextTokenLimit();
+    const contextTokenLimit = this.conversationService.getContextTokenLimit();
     return conversations.map((c) =>
       this.toConversationDto(c, {
         contextTokensUsed: 0,
@@ -60,12 +56,13 @@ export class ConversationsController {
     type: ConversationResponseDto,
   })
   async create(@User() user: unknown): Promise<ConversationResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     const systemPrompt = this.openaiService.getSystemPrompt();
-    const conversation =
-      await this.conversationService.startNewConversation(doctorId, systemPrompt);
-    const contextTokenLimit =
-      this.conversationService.getContextTokenLimit();
+    const conversation = await this.conversationService.startNewConversation(
+      doctorId,
+      systemPrompt,
+    );
+    const contextTokenLimit = this.conversationService.getContextTokenLimit();
     return this.toConversationDto(conversation, {
       contextTokensUsed: 0,
       contextTokenLimit,
@@ -84,22 +81,21 @@ export class ConversationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @User() user: unknown,
   ): Promise<MessageResponseDto[]> {
-    const doctorId = this.getDoctorId(user);
-    const conversation = await this.conversationService.getConversationByIdForDoctor(
-      id,
-      doctorId,
-    );
+    const doctorId = getDoctorId(user);
+    const conversation =
+      await this.conversationService.getConversationByIdForDoctor(id, doctorId);
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
-    const messages = await this.conversationService.listMessagesByConversationId(
-      id,
-    );
+    const messages =
+      await this.conversationService.listMessagesByConversationId(id);
     return messages.map((m) => this.toMessageDto(m));
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener una conversación por ID con uso de contexto' })
+  @ApiOperation({
+    summary: 'Obtener una conversación por ID con uso de contexto',
+  })
   @ApiParam({ name: 'id', description: 'ID de la conversación (UUID)' })
   @ApiResponse({
     status: 200,
@@ -111,7 +107,7 @@ export class ConversationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @User() user: unknown,
   ): Promise<ConversationResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     const usage = await this.conversationService.getContextTokenUsage(
       id,
       doctorId,
@@ -145,14 +141,13 @@ export class ConversationsController {
     @Body() dto: UpdateConversationDto,
     @User() user: unknown,
   ): Promise<ConversationResponseDto> {
-    const doctorId = this.getDoctorId(user);
+    const doctorId = getDoctorId(user);
     const conversation = await this.conversationService.updateConversation(
       id,
       doctorId,
       {} as Record<string, never>,
     );
-    const contextTokenLimit =
-      this.conversationService.getContextTokenLimit();
+    const contextTokenLimit = this.conversationService.getContextTokenLimit();
     return this.toConversationDto(conversation, {
       contextTokensUsed: 0,
       contextTokenLimit,
@@ -174,23 +169,11 @@ export class ConversationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @User() user: unknown,
   ): Promise<{ updatedCount: number }> {
-    const doctorId = this.getDoctorId(user);
-    return this.conversationService.markConversationMessagesAsRead(id, doctorId);
-  }
-
-  private getDoctorId(user: unknown): string {
-    if (!user || typeof user !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const doctor = (user as AuthenticatedRequestUser).doctor;
-    if (!doctor || typeof doctor !== 'object') {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    const id = (doctor as DoctorRef).id;
-    if (typeof id !== 'string' || id.length === 0) {
-      throw new ForbiddenException(ErrorCode.UNAUTHORIZED);
-    }
-    return id;
+    const doctorId = getDoctorId(user);
+    return this.conversationService.markConversationMessagesAsRead(
+      id,
+      doctorId,
+    );
   }
 
   private toConversationDto(
@@ -244,4 +227,3 @@ export class ConversationsController {
     };
   }
 }
-

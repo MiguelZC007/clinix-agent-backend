@@ -241,7 +241,8 @@ describe('OpenaiService', () => {
         choices: [
           {
             message: {
-              content: 'Puedo ayudarte con pacientes, citas e historias clínicas.',
+              content:
+                'Puedo ayudarte con pacientes, citas e historias clínicas.',
               tool_calls: null,
             },
           },
@@ -285,11 +286,21 @@ describe('OpenaiService', () => {
       const mockPatients = [
         {
           id: 'p1',
-          user: { name: 'Juan', lastName: 'Pérez', email: 'j@t.com', phone: '+58' },
+          user: {
+            name: 'Juan',
+            lastName: 'Pérez',
+            email: 'j@t.com',
+            phone: '+58',
+          },
         },
         {
           id: 'p2',
-          user: { name: 'María', lastName: 'García', email: 'm@t.com', phone: '+58' },
+          user: {
+            name: 'María',
+            lastName: 'García',
+            email: 'm@t.com',
+            phone: '+58',
+          },
         },
       ];
 
@@ -333,7 +344,7 @@ describe('OpenaiService', () => {
 
       expect(mockPrisma.patient.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          take: 200,
+          take: 50,
           orderBy: expect.any(Array),
           include: expect.any(Object),
         }),
@@ -366,7 +377,8 @@ describe('OpenaiService', () => {
           choices: [
             {
               message: {
-                content: 'No hay criterio de búsqueda; indique nombre o apellido.',
+                content:
+                  'No hay criterio de búsqueda; indique nombre o apellido.',
               },
             },
           ],
@@ -437,19 +449,23 @@ describe('OpenaiService', () => {
       >;
       const createArg = userCreateCalls[0]?.[0] as
         | {
-          data?: {
-            email?: unknown;
-            name?: unknown;
-            lastName?: unknown;
-            phone?: unknown;
-          };
-        }
+            data?: {
+              email?: unknown;
+              name?: unknown;
+              lastName?: unknown;
+              phone?: unknown;
+            };
+          }
         | undefined;
       expect(createArg?.data?.email).toBe('nuevo@test.com');
       expect(createArg?.data?.name).toBe('Carlos');
       expect(createArg?.data?.lastName).toBe('López');
       expect(createArg?.data?.phone).toBe('+584247654321');
-      const patientCreate = (createArg?.data as { patient?: { create?: { registeredByDoctorId?: string } } })?.patient?.create;
+      const patientCreate = (
+        createArg?.data as {
+          patient?: { create?: { registeredByDoctorId?: string } };
+        }
+      )?.patient?.create;
       expect(patientCreate?.registeredByDoctorId).toBe('doctor-uuid');
       expect(result).toContain('Carlos López');
     });
@@ -690,7 +706,10 @@ describe('OpenaiService', () => {
       expect(mockPrisma.patient.findMany).toHaveBeenCalled();
       const findManyCall = mockPrisma.patient.findMany.mock
         .calls[0] as Array<unknown>;
-      const callArg = findManyCall[0] as { orderBy?: unknown; include?: unknown };
+      const callArg = findManyCall[0] as {
+        orderBy?: unknown;
+        include?: unknown;
+      };
       expect(callArg.orderBy).toBeDefined();
       expect(callArg.include).toBeDefined();
     });
@@ -754,7 +773,10 @@ describe('OpenaiService', () => {
       expect(mockPrisma.appointment.create).not.toHaveBeenCalled();
       expect(mockChatCompletionsCreate).toHaveBeenCalledTimes(2);
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = secondCall?.[0]?.messages as Array<{ role?: string; content?: string }>;
+      const messages = secondCall?.[0]?.messages as Array<{
+        role?: string;
+        content?: string;
+      }>;
       const toolMessage = messages?.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
       expect(content).toContain('"success":false');
@@ -823,7 +845,10 @@ describe('OpenaiService', () => {
 
       expect(mockPrisma.appointment.create).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = secondCall?.[0]?.messages as Array<{ role?: string; content?: string }>;
+      const messages = secondCall?.[0]?.messages as Array<{
+        role?: string;
+        content?: string;
+      }>;
       const toolMessage = messages?.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
       expect(content).toContain('"success":false');
@@ -1053,7 +1078,10 @@ describe('OpenaiService', () => {
 
       expect(mockPrisma.appointment.create).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = secondCall?.[0]?.messages as Array<{ role?: string; content?: string }>;
+      const messages = secondCall?.[0]?.messages as Array<{
+        role?: string;
+        content?: string;
+      }>;
       const toolMessage = messages?.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
       expect(content).toContain('appointment-use-id-not-name');
@@ -1067,7 +1095,10 @@ describe('OpenaiService', () => {
       symptoms: ['cefalea', 'mareos'],
       treatment: 'Reposo, hidratación y paracetamol 500mg cada 8 horas.',
       diagnostics: [
-        { name: 'Cefalea tensional', description: 'Cefalea de características tensionales' },
+        {
+          name: 'Cefalea tensional',
+          description: 'Cefalea de características tensionales',
+        },
       ],
       physicalExams: [
         { name: 'Examen neurológico', description: 'Sin focalidad' },
@@ -1147,7 +1178,9 @@ describe('OpenaiService', () => {
       });
       expect(mockClinicHistoryService.create).toHaveBeenCalledTimes(1);
       const createArg = mockClinicHistoryService.create.mock.calls[0][0];
-      expect(createArg.appointmentId).toBe(validCreateClinicHistoryArgs.appointmentId);
+      expect(createArg.appointmentId).toBe(
+        validCreateClinicHistoryArgs.appointmentId,
+      );
       expect(createArg.consultationReason).toBe(
         validCreateClinicHistoryArgs.consultationReason,
       );
@@ -1200,11 +1233,18 @@ describe('OpenaiService', () => {
 
       expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
-        ?.messages ?? [];
+      const messages =
+        (
+          secondCall?.[0] as {
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        )?.messages ?? [];
       const toolMessage = messages.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
-      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      const parsed = JSON.parse(content) as {
+        success?: boolean;
+        error?: string;
+      };
       expect(parsed.success).toBe(false);
       expect(parsed.error).toBe('appointment-not-found');
     });
@@ -1254,11 +1294,18 @@ describe('OpenaiService', () => {
 
       expect(mockClinicHistoryService.create).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
-        ?.messages ?? [];
+      const messages =
+        (
+          secondCall?.[0] as {
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        )?.messages ?? [];
       const toolMessage = messages.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
-      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      const parsed = JSON.parse(content) as {
+        success?: boolean;
+        error?: string;
+      };
       expect(parsed.success).toBe(false);
       expect(parsed.error).toBe('appointment-not-owned-by-doctor');
     });
@@ -1311,11 +1358,18 @@ describe('OpenaiService', () => {
 
       expect(mockClinicHistoryService.create).toHaveBeenCalledTimes(1);
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
-      const messages = (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
-        ?.messages ?? [];
+      const messages =
+        (
+          secondCall?.[0] as {
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        )?.messages ?? [];
       const toolMessage = messages.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
-      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      const parsed = JSON.parse(content) as {
+        success?: boolean;
+        error?: string;
+      };
       expect(parsed.success).toBe(false);
       expect(parsed.error).toBe('appointment-already-has-clinic-history');
     });
@@ -1324,8 +1378,7 @@ describe('OpenaiService', () => {
       const argsWithoutAppointment = {
         patientId: '550e8400-e29b-41d4-a716-446655440001',
         specialtyId: '550e8400-e29b-41d4-a716-446655440002',
-        consultationReason:
-          'Dolor de cabeza persistente desde hace 3 días',
+        consultationReason: 'Dolor de cabeza persistente desde hace 3 días',
         symptoms: ['cefalea', 'mareos'],
         treatment: 'Reposo, hidratación y paracetamol 500mg cada 8 horas.',
         diagnostics: [
@@ -1349,6 +1402,10 @@ describe('OpenaiService', () => {
       mockClinicHistoryService.createWithoutAppointment.mockResolvedValue({
         id: 'history-uuid',
         consultationReason: argsWithoutAppointment.consultationReason,
+      });
+      mockPrisma.patient.findUnique.mockResolvedValue({
+        id: argsWithoutAppointment.patientId,
+        registeredByDoctorId: 'doctor-uuid',
       });
 
       mockChatCompletionsCreate
@@ -1396,7 +1453,9 @@ describe('OpenaiService', () => {
       expect(doctorId).toBe('doctor-uuid');
       expect(dto.patientId).toBe(argsWithoutAppointment.patientId);
       expect(dto.specialtyId).toBe(argsWithoutAppointment.specialtyId);
-      expect(dto.consultationReason).toBe(argsWithoutAppointment.consultationReason);
+      expect(dto.consultationReason).toBe(
+        argsWithoutAppointment.consultationReason,
+      );
       expect(dto.symptoms).toEqual(argsWithoutAppointment.symptoms);
     });
 
@@ -1404,8 +1463,7 @@ describe('OpenaiService', () => {
       const argsWithNumbers = {
         patientNumber: 1,
         specialtyCode: 2,
-        consultationReason:
-          'Dolor de cabeza persistente desde hace 3 días',
+        consultationReason: 'Dolor de cabeza persistente desde hace 3 días',
         symptoms: ['cefalea', 'mareos'],
         treatment: 'Reposo, hidratación y paracetamol.',
         diagnostics: [
@@ -1428,18 +1486,25 @@ describe('OpenaiService', () => {
       };
       const resolvedPatientId = '550e8400-e29b-41d4-a716-446655440001';
       const resolvedSpecialtyId = '550e8400-e29b-41d4-a716-446655440002';
-      mockPrisma.patient.findUnique.mockImplementation((args: { where?: { patientNumber?: number } }) => {
-        if (args?.where?.patientNumber === 1) {
-          return Promise.resolve({ id: resolvedPatientId });
-        }
-        return Promise.resolve(null);
-      });
-      mockPrisma.specialty.findUnique.mockImplementation((args: { where?: { specialtyCode?: number } }) => {
-        if (args?.where?.specialtyCode === 2) {
-          return Promise.resolve({ id: resolvedSpecialtyId });
-        }
-        return Promise.resolve(null);
-      });
+      mockPrisma.patient.findUnique.mockImplementation(
+        (args: { where?: { patientNumber?: number } }) => {
+          if (args?.where?.patientNumber === 1) {
+            return Promise.resolve({
+              id: resolvedPatientId,
+              registeredByDoctorId: 'doctor-uuid',
+            });
+          }
+          return Promise.resolve(null);
+        },
+      );
+      mockPrisma.specialty.findUnique.mockImplementation(
+        (args: { where?: { specialtyCode?: number } }) => {
+          if (args?.where?.specialtyCode === 2) {
+            return Promise.resolve({ id: resolvedSpecialtyId });
+          }
+          return Promise.resolve(null);
+        },
+      );
       mockClinicHistoryService.createWithoutAppointment.mockResolvedValue({
         id: 'history-uuid',
         consultationReason: argsWithNumbers.consultationReason,
@@ -1550,14 +1615,22 @@ describe('OpenaiService', () => {
         'Registra historia para paciente 999',
       );
 
-      expect(mockClinicHistoryService.createWithoutAppointment).not.toHaveBeenCalled();
+      expect(
+        mockClinicHistoryService.createWithoutAppointment,
+      ).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
       const messages =
-        (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
-          ?.messages ?? [];
+        (
+          secondCall?.[0] as {
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        )?.messages ?? [];
       const toolMessage = messages.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
-      const parsed = JSON.parse(content) as { success?: boolean; error?: string };
+      const parsed = JSON.parse(content) as {
+        success?: boolean;
+        error?: string;
+      };
       expect(parsed.success).toBe(false);
       expect(parsed.error).toBe('patient-not-found');
     });
@@ -1612,7 +1685,8 @@ describe('OpenaiService', () => {
           choices: [
             {
               message: {
-                content: 'Se requieren patientId y specialtyId cuando no hay cita.',
+                content:
+                  'Se requieren patientId y specialtyId cuando no hay cita.',
               },
             },
           ],
@@ -1629,8 +1703,11 @@ describe('OpenaiService', () => {
       ).not.toHaveBeenCalled();
       const secondCall = mockChatCompletionsCreate.mock.calls[1];
       const messages =
-        (secondCall?.[0] as { messages?: Array<{ role?: string; content?: string }> })
-          ?.messages ?? [];
+        (
+          secondCall?.[0] as {
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        )?.messages ?? [];
       const toolMessage = messages.find((m) => m.role === 'tool');
       const content = toolMessage?.content ?? '';
       const parsed = JSON.parse(content) as {

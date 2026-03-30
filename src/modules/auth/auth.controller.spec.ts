@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginResponse } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { AuthenticatedRequest } from './auth.controller';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -53,6 +55,7 @@ describe('AuthController', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ limit: 10, ttl: 60000 }])],
       controllers: [AuthController],
       providers: [{ provide: AuthService, useValue: mockService }],
     }).compile();
@@ -91,16 +94,7 @@ describe('AuthController', () => {
       service.logout.mockResolvedValue(undefined);
 
       const result = await controller.logout(
-        mockRequest as unknown as {
-          user: {
-            id: string;
-            email: string;
-            name: string;
-            lastName: string;
-            phone: string;
-          };
-          token: string;
-        },
+        mockRequest as unknown as AuthenticatedRequest,
       );
 
       expect(service.logout).toHaveBeenCalledWith(

@@ -1,4 +1,5 @@
-import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -12,7 +13,7 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
-interface AuthenticatedRequest extends Request {
+export interface AuthenticatedRequest extends Request {
   user: {
     id: string;
     email: string;
@@ -29,6 +30,8 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
   @Post('login')
   @ApiOperation({
     summary: 'Iniciar sesión con número de celular y contraseña',
@@ -59,6 +62,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
   @Post('forgot-password')
   @ApiOperation({
     summary: 'Solicitar código OTP por WhatsApp para recuperar contraseña',
@@ -82,6 +87,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
   @Post('reset-password')
   @ApiOperation({
     summary: 'Restablecer contraseña con código OTP recibido por WhatsApp',
@@ -97,7 +104,10 @@ export class AuthController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'OTP inválido o expirado / contraseñas no coinciden' })
+  @ApiResponse({
+    status: 400,
+    description: 'OTP inválido o expirado / contraseñas no coinciden',
+  })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(
       dto.phone,

@@ -342,13 +342,13 @@ describe('ConversationService', () => {
       >;
       const createArg = createCalls[0]?.[0] as
         | {
-          data?: {
-            conversationId?: unknown;
-            role?: unknown;
-            content?: unknown;
-            tokenCount?: unknown;
-          };
-        }
+            data?: {
+              conversationId?: unknown;
+              role?: unknown;
+              content?: unknown;
+              tokenCount?: unknown;
+            };
+          }
         | undefined;
       expect(createArg?.data?.conversationId).toBe('conversation-uuid');
       expect(createArg?.data?.role).toBe('user');
@@ -357,17 +357,19 @@ describe('ConversationService', () => {
     });
 
     it('debe estimar tokens correctamente', async () => {
-      const longMessage = 'a'.repeat(100);
+      // Service uses word-count heuristic: Math.ceil(wordCount * 1.3)
+      // A 5-word message: Math.ceil(5 * 1.3) = 7
+      const fiveWordMessage = 'uno dos tres cuatro cinco';
       mockPrisma.message.create.mockResolvedValue({
         id: 'message-uuid',
-        tokenCount: 25,
+        tokenCount: 7,
       });
       mockPrisma.conversation.findUnique.mockResolvedValue({
         ...mockConversation,
         messages: [],
       });
 
-      await service.addMessage('conversation-uuid', 'user', longMessage);
+      await service.addMessage('conversation-uuid', 'user', fiveWordMessage);
 
       const createCalls = mockPrisma.message.create.mock.calls as Array<
         [unknown]
@@ -375,7 +377,7 @@ describe('ConversationService', () => {
       const createArg = createCalls[0]?.[0] as
         | { data?: { tokenCount?: unknown } }
         | undefined;
-      expect(createArg?.data?.tokenCount).toBe(25);
+      expect(createArg?.data?.tokenCount).toBe(7);
     });
   });
 

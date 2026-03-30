@@ -222,7 +222,12 @@ export class ConversationService {
   }
 
   private estimateTokenCount(text: string): number {
-    return Math.ceil(text.length / 4);
+    // Word-based heuristic: more accurate for Spanish text than length/4.
+    // NOTE: This is still an approximation. For production-grade accuracy,
+    // consider using a proper tokenizer like tiktoken (currently avoided
+    // to keep dependencies minimal).
+    const wordCount = text.trim().split(/\s+/).length;
+    return Math.ceil(wordCount * 1.3);
   }
 
   private async checkAndUpdateSummary(conversationId: string): Promise<void> {
@@ -399,8 +404,10 @@ export class ConversationService {
     conversationId: string,
     doctorId: string,
   ): Promise<{ contextTokensUsed: number; contextTokenLimit: number }> {
-    const conversation =
-      await this.getConversationWithMessagesForDoctor(conversationId, doctorId);
+    const conversation = await this.getConversationWithMessagesForDoctor(
+      conversationId,
+      doctorId,
+    );
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
@@ -411,8 +418,10 @@ export class ConversationService {
     conversationId: string,
     doctorId: string,
   ): Promise<ConversationMessage[]> {
-    const conversation =
-      await this.getConversationWithMessagesForDoctor(conversationId, doctorId);
+    const conversation = await this.getConversationWithMessagesForDoctor(
+      conversationId,
+      doctorId,
+    );
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
@@ -434,7 +443,9 @@ export class ConversationService {
     return conversation;
   }
 
-  async listMessagesByConversationId(conversationId: string): Promise<Message[]> {
+  async listMessagesByConversationId(
+    conversationId: string,
+  ): Promise<Message[]> {
     return this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },

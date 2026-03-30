@@ -6,7 +6,8 @@ import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
 import type { ProcessIncomingMessageResult } from './twilio.service';
 
-const MESSAGE_DELAY_MS = 500;
+// Delay between sending WhatsApp message parts to avoid rate limiting
+const MESSAGE_PART_DELAY_MS = 500;
 const NOT_DOCTOR_MESSAGE =
   'El número no está registrado como médico. Contacta al administrador.';
 
@@ -20,7 +21,7 @@ export class ReplyMessageHandler {
     private readonly authSessionService: AuthSessionService,
     @Inject(forwardRef(() => TwilioService))
     private readonly twilioService: TwilioService,
-  ) { }
+  ) {}
 
   async handle(
     webhookData: WebhookMessageDto,
@@ -96,7 +97,7 @@ export class ReplyMessageHandler {
       );
 
       if (i < messageParts.length - 1) {
-        await this.delay(MESSAGE_DELAY_MS);
+        await this.delay(MESSAGE_PART_DELAY_MS);
       }
     }
 

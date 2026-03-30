@@ -15,6 +15,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('v1');
 
+  // NOTE: This middleware is intentionally permissive for Twilio webhooks.
+  // Twilio validates request authenticity using cryptographic signatures
+  // (X-Twilio-Signature header), making additional rate limiting unnecessary.
   app.use((req: Request, _res: Response, next: NextFunction) => {
     if (
       req.method === 'POST' &&

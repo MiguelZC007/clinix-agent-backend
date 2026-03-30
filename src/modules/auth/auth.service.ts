@@ -1,11 +1,18 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { JwtService } from '@nestjs/jwt';
 import type { Cache } from 'cache-manager';
 import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { TwilioService } from '../twilio/twilio.service';
+import environment from 'src/core/config/environments';
 
 export interface LoginResponse {
   accessToken: string;
@@ -33,14 +40,19 @@ export class AuthService {
   async login(loginDto: LoginDto): Promise<LoginResponse> {
     const user = await this.prisma.user.findUnique({
       where: { phone: loginDto.phone },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        lastName: true,
+        phone: true,
+        password: true,
+      },
     });
 
-    if (!user) {
+    // Use generic error message to prevent user enumeration
+    if (!user || !user.password) {
       throw new UnauthorizedException('invalid-credentials');
-    }
-
-    if (!user.password) {
-      throw new UnauthorizedException('user-without-password');
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -93,8 +105,7 @@ export class AuthService {
   }
 
   async hashPassword(password: string): Promise<string> {
-    const saltRounds = 10;
-    return bcrypt.hash(password, saltRounds);
+    return bcrypt.hash(password, environment.SALT_ROUND);
   }
 
   async forgotPassword(phone: string): Promise<{ message: string }> {
@@ -107,7 +118,7 @@ export class AuthService {
     if (!user) {
       return { message: genericMessage };
     }
-    const code = String(Math.floor(100_000 + Math.random() * 900_000));
+    const code = String(randomInt(100_000, 999_999));
     const cacheKey = `${OTP_CACHE_PREFIX}${normalizedPhone}`;
     await this.cache.set(cacheKey, code, OTP_TTL_MS);
     const whatsappBody = `Tu código de recuperación Clinix es: ${code}. Válido por 10 minutos.`;

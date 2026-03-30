@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ClinicHistoryService } from './clinic-history.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
@@ -17,6 +21,7 @@ describe('ClinicHistoryService', () => {
   const mockPatient = {
     id: 'patient-uuid',
     patientNumber: 1,
+    registeredByDoctorId: 'doctor-uuid',
     user: { name: 'Juan', lastName: 'Pérez' },
   };
 
@@ -117,30 +122,82 @@ describe('ClinicHistoryService', () => {
     };
 
     it('debe crear una historia clínica exitosamente', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            appointment: {
+              findUnique: prisma.appointment.findUnique,
+            },
+            patient: {
+              findUnique: prisma.patient.findUnique,
+            },
+            clinicHistory: {
+              create: prisma.clinicHistory.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
+      // Mock patient ownership check
+      prisma.patient.findUnique.mockResolvedValue({
+        registeredByDoctorId: 'doctor-uuid',
+      });
       prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
       prisma.clinicHistory.create.mockResolvedValue(mockClinicHistory);
 
-      const result = await service.create(createDto);
+      const result = await service.create(createDto, 'doctor-uuid');
 
       expect(result).toBeDefined();
       expect(result.consultationReason).toBe('Dolor de cabeza');
     });
 
     it('debe lanzar NotFoundException si la cita no existe', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            appointment: {
+              findUnique: prisma.appointment.findUnique,
+            },
+            patient: {
+              findUnique: prisma.patient.findUnique,
+            },
+            clinicHistory: {
+              create: prisma.clinicHistory.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.appointment.findUnique.mockResolvedValue(null);
 
-      await expect(service.create(createDto)).rejects.toThrow(
+      await expect(service.create(createDto, 'doctor-uuid')).rejects.toThrow(
         NotFoundException,
       );
     });
 
     it('debe lanzar ConflictException si la cita ya tiene historia clínica', async () => {
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            appointment: {
+              findUnique: prisma.appointment.findUnique,
+            },
+            patient: {
+              findUnique: prisma.patient.findUnique,
+            },
+            clinicHistory: {
+              create: prisma.clinicHistory.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
       prisma.appointment.findUnique.mockResolvedValue({
         ...mockAppointment,
         clinicHistory: mockClinicHistory,
       });
 
-      await expect(service.create(createDto)).rejects.toThrow(
+      await expect(service.create(createDto, 'doctor-uuid')).rejects.toThrow(
         ConflictException,
       );
     });
@@ -157,9 +214,7 @@ describe('ClinicHistoryService', () => {
         diagnostics: [
           { name: 'Migraña', description: 'Dolor de cabeza crónico' },
         ],
-        physicalExams: [
-          { name: 'Examen neurológico', description: 'Normal' },
-        ],
+        physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
         vitalSigns: [
           {
             name: 'Presión arterial',
@@ -175,8 +230,34 @@ describe('ClinicHistoryService', () => {
       appointmentId: null,
     };
 
+    beforeEach(() => {
+      // Set up $transaction mock for callback form
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            patient: {
+              findUnique: prisma.patient.findUnique,
+            },
+            specialty: {
+              findUnique: prisma.specialty.findUnique,
+            },
+            doctor: {
+              findUnique: prisma.doctor.findUnique,
+            },
+            clinicHistory: {
+              create: prisma.clinicHistory.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
+    });
+
     it('debe crear una historia clínica sin cita exitosamente', async () => {
-      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.patient.findUnique.mockResolvedValue({
+        ...mockPatient,
+        registeredByDoctorId: 'doctor-uuid',
+      });
       prisma.specialty.findUnique.mockResolvedValue({
         id: 'specialty-uuid',
         name: 'Cardiología',
@@ -232,7 +313,10 @@ describe('ClinicHistoryService', () => {
     });
 
     it('debe lanzar NotFoundException si la especialidad no existe', async () => {
-      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.patient.findUnique.mockResolvedValue({
+        ...mockPatient,
+        registeredByDoctorId: 'doctor-uuid',
+      });
       prisma.specialty.findUnique.mockResolvedValue(null);
 
       await expect(
@@ -253,9 +337,7 @@ describe('ClinicHistoryService', () => {
         diagnostics: [
           { name: 'Migraña', description: 'Dolor de cabeza crónico' },
         ],
-        physicalExams: [
-          { name: 'Examen neurológico', description: 'Normal' },
-        ],
+        physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
         vitalSigns: [
           {
             name: 'Presión arterial',
@@ -265,7 +347,11 @@ describe('ClinicHistoryService', () => {
           },
         ],
       };
-      const patientByNumber = { ...mockPatient, id: 'patient-uuid' };
+      const patientByNumber = {
+        ...mockPatient,
+        id: 'patient-uuid',
+        registeredByDoctorId: 'doctor-uuid',
+      };
       const specialtyByCode = {
         id: 'specialty-uuid',
         name: 'Cardiología',
@@ -350,7 +436,10 @@ describe('ClinicHistoryService', () => {
           },
         ],
       };
-      prisma.patient.findUnique.mockResolvedValue(mockPatient);
+      prisma.patient.findUnique.mockResolvedValue({
+        ...mockPatient,
+        registeredByDoctorId: 'doctor-uuid',
+      });
       prisma.specialty.findUnique.mockResolvedValue(null);
 
       await expect(
@@ -372,7 +461,10 @@ describe('ClinicHistoryService', () => {
     });
 
     it('debe retornar lista paginada de historias clínicas', async () => {
-      const result = await service.findAll({ page: 1, pageSize: 10 });
+      const result = await service.findAll(
+        { page: 1, pageSize: 10 },
+        'doctor-uuid',
+      );
 
       expect(result).toEqual({
         items: expect.any(Array),
@@ -388,7 +480,9 @@ describe('ClinicHistoryService', () => {
           take: 10,
         }),
       );
-      expect(prisma.clinicHistory.count).toHaveBeenCalledWith({ where: {} });
+      expect(prisma.clinicHistory.count).toHaveBeenCalledWith({
+        where: { doctorId: 'doctor-uuid' },
+      });
     });
 
     it('debe construir where con search cuando se pasa search', async () => {
@@ -397,10 +491,11 @@ describe('ClinicHistoryService', () => {
         pageSize: 10,
         search: 'dolor',
       };
-      await service.findAll(query);
+      await service.findAll(query, 'doctor-uuid');
 
-      const findManyCall = prisma.clinicHistory.findMany.mock
-        .calls[0][0] as { where?: unknown };
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: unknown;
+      };
       expect(findManyCall.where).toBeDefined();
       expect(findManyCall.where).toHaveProperty('OR');
       const orConditions = (findManyCall.where as { OR: unknown[] }).OR;
@@ -416,12 +511,31 @@ describe('ClinicHistoryService', () => {
         pageSize: 10,
         patientId: '123e4567-e89b-12d3-a456-426614174000',
       };
-      await service.findAll(query);
+      await service.findAll(query, 'doctor-uuid');
 
-      const findManyCall = prisma.clinicHistory.findMany.mock
-        .calls[0][0] as { where?: { patientId?: string } };
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: { patientId?: string; doctorId?: string };
+      };
       expect(findManyCall.where).toEqual({
         patientId: '123e4567-e89b-12d3-a456-426614174000',
+        doctorId: 'doctor-uuid',
+      });
+    });
+
+    it('debe construir where con patientId cuando se pasa patientId', async () => {
+      const query: FindAllClinicHistoriesQueryDto = {
+        page: 1,
+        pageSize: 10,
+        patientId: '123e4567-e89b-12d3-a456-426614174000',
+      };
+      await service.findAll(query, 'doctor-uuid');
+
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: { patientId?: string; doctorId?: string };
+      };
+      expect(findManyCall.where).toEqual({
+        patientId: '123e4567-e89b-12d3-a456-426614174000',
+        doctorId: 'doctor-uuid',
       });
     });
 
@@ -431,10 +545,11 @@ describe('ClinicHistoryService', () => {
         pageSize: 10,
         dateFrom: '2026-01-01',
       };
-      await service.findAll(query);
+      await service.findAll(query, 'doctor-uuid');
 
-      const findManyCall = prisma.clinicHistory.findMany.mock
-        .calls[0][0] as { where?: { createdAt?: { gte?: Date } } };
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: { createdAt?: { gte?: Date } };
+      };
       expect(findManyCall.where).toHaveProperty('createdAt');
       expect(findManyCall.where?.createdAt).toHaveProperty('gte');
       expect(
@@ -448,10 +563,11 @@ describe('ClinicHistoryService', () => {
         pageSize: 10,
         dateTo: '2026-12-31',
       };
-      await service.findAll(query);
+      await service.findAll(query, 'doctor-uuid');
 
-      const findManyCall = prisma.clinicHistory.findMany.mock
-        .calls[0][0] as { where?: { createdAt?: { lte?: Date } } };
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: { createdAt?: { lte?: Date } };
+      };
       expect(findManyCall.where).toHaveProperty('createdAt');
       expect(findManyCall.where?.createdAt).toHaveProperty('lte');
     });
@@ -464,10 +580,11 @@ describe('ClinicHistoryService', () => {
         dateFrom: '2026-01-01',
         dateTo: '2026-12-31',
       };
-      await service.findAll(query);
+      await service.findAll(query, 'doctor-uuid');
 
-      const findManyCall = prisma.clinicHistory.findMany.mock
-        .calls[0][0] as { where?: { AND?: unknown[] } };
+      const findManyCall = prisma.clinicHistory.findMany.mock.calls[0][0] as {
+        where?: { AND?: unknown[] };
+      };
       expect(findManyCall.where).toHaveProperty('AND');
       const and = (findManyCall.where as { AND: unknown[] }).AND;
       expect(and.length).toBeGreaterThanOrEqual(2);
@@ -479,7 +596,7 @@ describe('ClinicHistoryService', () => {
         pageSize: 5,
         search: 'test',
       };
-      const result = await service.findAll(query);
+      const result = await service.findAll(query, 'doctor-uuid');
 
       expect(result.page).toBe(2);
       expect(result.pageSize).toBe(5);
@@ -496,7 +613,10 @@ describe('ClinicHistoryService', () => {
     it('debe retornar una historia clínica por ID', async () => {
       prisma.clinicHistory.findUnique.mockResolvedValue(mockClinicHistory);
 
-      const result = await service.findOne('clinic-history-uuid');
+      const result = await service.findOne(
+        'clinic-history-uuid',
+        'doctor-uuid',
+      );
 
       expect(result).toBeDefined();
       expect(result.id).toBe('clinic-history-uuid');
@@ -509,7 +629,10 @@ describe('ClinicHistoryService', () => {
       };
       prisma.clinicHistory.findUnique.mockResolvedValue(withoutAppointment);
 
-      const result = await service.findOne('clinic-history-uuid');
+      const result = await service.findOne(
+        'clinic-history-uuid',
+        'doctor-uuid',
+      );
 
       expect(result).toBeDefined();
       expect(result.appointmentId).toBeNull();
@@ -518,9 +641,9 @@ describe('ClinicHistoryService', () => {
     it('debe lanzar NotFoundException si la historia no existe', async () => {
       prisma.clinicHistory.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOne('invalid-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.findOne('invalid-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -529,17 +652,34 @@ describe('ClinicHistoryService', () => {
       prisma.patient.findUnique.mockResolvedValue(mockPatient);
       prisma.clinicHistory.findMany.mockResolvedValue([mockClinicHistory]);
 
-      const result = await service.findByPatient('patient-uuid');
+      const result = await service.findByPatient('patient-uuid', 'doctor-uuid');
 
       expect(result).toHaveLength(1);
+      expect(prisma.clinicHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { patientId: 'patient-uuid', doctorId: 'doctor-uuid' },
+        }),
+      );
     });
 
     it('debe lanzar NotFoundException si el paciente no existe', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.findByPatient('invalid-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.findByPatient('invalid-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('debe lanzar ForbiddenException si el paciente no pertenece al doctor', async () => {
+      const otherDoctorPatient = {
+        ...mockPatient,
+        registeredByDoctorId: 'other-doctor-uuid',
+      };
+      prisma.patient.findUnique.mockResolvedValue(otherDoctorPatient);
+
+      await expect(
+        service.findByPatient('patient-uuid', 'doctor-uuid'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });
