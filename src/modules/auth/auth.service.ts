@@ -47,12 +47,18 @@ export class AuthService {
         lastName: true,
         phone: true,
         password: true,
+        role: true,
+        isActive: true,
       },
     });
 
     // Use generic error message to prevent user enumeration
     if (!user || !user.password) {
       throw new UnauthorizedException('invalid-credentials');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('account-disabled');
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -64,7 +70,7 @@ export class AuthService {
       throw new UnauthorizedException('invalid-credentials');
     }
 
-    const payload = { sub: user.id, phone: user.phone };
+    const payload = { sub: user.id, phone: user.phone, role: user.role };
     const accessToken = await this.jwtService.signAsync(payload);
 
     return {

@@ -4,12 +4,15 @@ import { OpenaiService } from '../openai/openai.service';
 import { ConversationService } from '../openai/conversation.service';
 import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 import type { ProcessIncomingMessageResult } from './twilio.service';
 
 // Delay between sending WhatsApp message parts to avoid rate limiting
 const MESSAGE_PART_DELAY_MS = 500;
 const NOT_DOCTOR_MESSAGE =
   'El número no está registrado como médico. Contacta al administrador.';
+const ACCOUNT_DISABLED_MESSAGE =
+  'Tu cuenta ha sido deshabilitada. Contacta al administrador.';
 
 @Injectable()
 export class ReplyMessageHandler {
@@ -19,6 +22,7 @@ export class ReplyMessageHandler {
     private readonly openaiService: OpenaiService,
     private readonly conversationService: ConversationService,
     private readonly authSessionService: AuthSessionService,
+    private readonly prisma: PrismaService,
     @Inject(forwardRef(() => TwilioService))
     private readonly twilioService: TwilioService,
   ) {}
@@ -38,6 +42,26 @@ export class ReplyMessageHandler {
       return {
         success: true,
         message: 'Mensaje rechazado: número no registrado como médico',
+        data: {
+          messageSid: webhookData.MessageSid,
+          from: webhookData.From,
+        },
+      };
+    }
+
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorInfo.doctorId },
+      include: { user: { select: { isActive: true } } },
+    });
+    if (!doctor?.user.isActive) {
+      await this.twilioService.sendReply(
+        webhookData.To,
+        webhookData.From,
+        ACCOUNT_DISABLED_MESSAGE,
+      );
+      return {
+        success: true,
+        message: 'Mensaje rechazado: cuenta de médico deshabilitada',
         data: {
           messageSid: webhookData.MessageSid,
           from: webhookData.From,

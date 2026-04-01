@@ -7,6 +7,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -14,6 +20,8 @@ model User {
   lastName  String
   phone     String   @unique
   password  String?
+  role      Role     @default(PATIENT)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   patient   Patient?
@@ -46,7 +54,7 @@ model Doctor {
   user               User            @relation(fields: [userId], references: [id])
   specialtyId        String
   specialty          Specialty       @relation(fields: [specialtyId], references: [id])
-  licenseNumber      String
+  licenseNumber      String   @unique
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   clinicHistories    ClinicHistory[]
@@ -221,4 +229,13 @@ model WhatsAppAuthSession {
   lastMessageAt      DateTime @default(now())
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String
+  targetId  String
+  action    String
+  changes   Json
+  createdAt DateTime @default(now())
 }
