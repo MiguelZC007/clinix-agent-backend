@@ -12,6 +12,7 @@ import { TwilioModule } from './modules/twilio/twilio.module';
 import { AppointmentModule } from './modules/appointment/appointment.module';
 import { ClinicHistoryModule } from './modules/clinic-history/clinic-history.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     AppointmentModule,
     ClinicHistoryModule,
     DashboardModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

@@ -271,6 +271,7 @@ async function main() {
       lastName: 'Prueba E2E',
       phone: e2eDoctorPhone,
       password: testPasswordHash,
+      role: 'DOCTOR',
     },
     update: {
       phone: e2eDoctorPhone,
@@ -291,6 +292,19 @@ async function main() {
     });
   }
   console.log('✅ Usuario de prueba E2E listo');
+
+  console.log('👤 Creando usuario administrador...');
+  const adminUser = await prisma.user.create({
+    data: {
+      email: 'admin@clinix.com',
+      name: 'Admin',
+      lastName: 'Sistema',
+      phone: '+59899000000',
+      password: await bcrypt.hash('admin123', 10),
+      role: 'ADMIN',
+    },
+  });
+  console.log(`✅ Usuario administrador creado: ${adminUser.email}`);
 
   console.log('👨‍⚕️ Creando doctores...');
   const doctors: Array<{
@@ -314,6 +328,7 @@ async function main() {
         lastName,
         phone,
         password: hashedPassword,
+        role: 'DOCTOR',
       },
     });
 
@@ -358,6 +373,7 @@ async function main() {
         lastName,
         phone,
         password: hashedPassword,
+        role: 'PATIENT',
       },
     });
 
