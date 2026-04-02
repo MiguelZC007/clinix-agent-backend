@@ -3,11 +3,11 @@ import {
   IsString,
   IsEmail,
   IsOptional,
-  IsUUID,
   MinLength,
   MaxLength,
   IsNotEmpty,
   Matches,
+  IsUUID,
 } from 'class-validator';
 
 export class CreateDoctorDto {
@@ -32,7 +32,7 @@ export class CreateDoctorDto {
 
   @ApiProperty({
     description: 'Apellido del doctor',
-    example: 'González',
+    example: 'García',
   })
   @IsNotEmpty({ message: 'El apellido es requerido' })
   @IsString({ message: 'El apellido debe ser texto' })
@@ -52,22 +52,6 @@ export class CreateDoctorDto {
   phone: string;
 
   @ApiProperty({
-    description: 'ID de la especialidad del doctor',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
-  @IsNotEmpty({ message: 'La especialidad es requerida' })
-  @IsUUID('4', { message: 'El ID de especialidad debe ser un UUID válido' })
-  specialtyId: string;
-
-  @ApiProperty({
-    description: 'Número de licencia del doctor',
-    example: 'MED-12345',
-  })
-  @IsNotEmpty({ message: 'El número de licencia es requerido' })
-  @IsString({ message: 'El número de licencia debe ser texto' })
-  licenseNumber: string;
-
-  @ApiProperty({
     description: 'Contraseña del doctor',
     example: 'password123',
     required: false,
@@ -77,4 +61,26 @@ export class CreateDoctorDto {
   @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
   @MaxLength(100, { message: 'La contraseña no puede exceder 100 caracteres' })
   password?: string;
+
+  @ApiProperty({
+    description: 'ID de la especialidad del doctor',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsNotEmpty({ message: 'La especialidad es requerida' })
+  @IsUUID('4', { message: 'La especialidad debe ser un UUID válido' })
+  specialtyId: string;
+
+  @ApiProperty({
+    description: 'Número de licencia médica',
+    example: 'MP-12345',
+  })
+  @IsNotEmpty({ message: 'El número de licencia es requerido' })
+  @IsString({ message: 'El número de licencia debe ser texto' })
+  @MinLength(2, {
+    message: 'El número de licencia debe tener al menos 2 caracteres',
+  })
+  @MaxLength(50, {
+    message: 'El número de licencia no puede exceder 50 caracteres',
+  })
+  licenseNumber: string;
 }

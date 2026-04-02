@@ -21,6 +21,7 @@ describe('AuthGuard', () => {
     name: 'Juan',
     lastName: 'Pérez',
     phone: '+584241234567',
+    isAdmin: false,
     patient: null,
     doctor: null,
   };

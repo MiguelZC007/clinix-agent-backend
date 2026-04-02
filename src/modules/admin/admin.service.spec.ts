@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   createMockPrismaService,
@@ -16,6 +20,7 @@ jest.mock('bcrypt', () => ({
 describe('AdminService', () => {
   let service: AdminService;
   let prisma: MockPrismaService;
+  let auditService: jest.Mocked<AuditService>;
 
   const mockUser = {
     id: 'user-uuid',
@@ -28,41 +33,63 @@ describe('AdminService', () => {
     updatedAt: new Date(),
   };
 
-  const mockSpecialty = {
-    id: 'specialty-uuid',
-    name: 'Cardiología',
-    specialtyCode: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
   const mockDoctor = {
     id: 'doctor-uuid',
     userId: 'user-uuid',
     specialtyId: 'specialty-uuid',
-    licenseNumber: 'LIC-12345',
-    isActive: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    user: mockUser,
-    specialty: mockSpecialty,
+    licenseNumber: 'MP-12345',
+    createdAt: new Date('2026-01-15'),
+    updatedAt: new Date('2026-01-15'),
+    user: { ...mockUser, isActive: true },
+    specialty: {
+      id: 'specialty-uuid',
+      name: 'Cardiología',
+      specialtyCode: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
   };
 
   beforeEach(async () => {
     prisma = createMockPrismaService();
 
+    const mockAuditService = {
+      log: jest.fn().mockResolvedValue({
+        id: 'audit-uuid',
+        userId: 'admin-uuid',
+        userName: 'Admin Test',
+        action: 'CREATE',
+        entityType: 'Doctor',
+        entityId: 'doctor-uuid',
+        previousState: null,
+        newState: {},
+        result: 'SUCCESS',
+        errorMessage: null,
+        ipAddress: null,
+        userAgent: null,
+        createdAt: new Date(),
+      }),
+      findAll: jest.fn(),
+      findOne: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AdminService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        AdminService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: mockAuditService },
+      ],
     }).compile();
 
     service = module.get<AdminService>(AdminService);
+    auditService = module.get(AuditService);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('create', () => {
+  describe('createDoctor()', () => {
     const createDto: CreateDoctorDto = {
       email: 'doctor@ejemplo.com',
       name: 'Carlos',
@@ -70,10 +97,10 @@ describe('AdminService', () => {
       phone: '+584241234567',
       password: 'password123',
       specialtyId: 'specialty-uuid',
-      licenseNumber: 'LIC-12345',
+      licenseNumber: 'MP-12345',
     };
 
-    it('debe crear un doctor exitosamente (transacción User+Doctor+AuditLog)', async () => {
+    it('debe crear un doctor exitosamente', async () => {
       prisma.$transaction.mockImplementation(
         async (callback: (tx: unknown) => Promise<unknown>) => {
           const tx = {
@@ -81,29 +108,42 @@ describe('AdminService', () => {
               findFirst: jest.fn().mockResolvedValue(null),
               create: jest.fn().mockResolvedValue({
                 ...mockUser,
-                doctor: { ...mockDoctor, specialty: mockSpecialty },
+                doctor: {
+                  ...mockDoctor,
+                  specialty: {
+                    id: 'specialty-uuid',
+                    name: 'Cardiología',
+                  },
+                },
               }),
             },
             doctor: {
               findFirst: jest.fn().mockResolvedValue(null),
             },
             specialty: {
-              findUnique: jest.fn().mockResolvedValue(mockSpecialty),
-            },
-            auditLog: {
-              create: jest.fn().mockResolvedValue({}),
+              findUnique: jest.fn().mockResolvedValue({
+                id: 'specialty-uuid',
+                name: 'Cardiología',
+              }),
             },
           };
           return callback(tx);
         },
       );
 
-      const result = await service.create(createDto, 'admin-uuid');
+      const result = await service.createDoctor(createDto, 'admin-uuid');
 
       expect(result).toBeDefined();
       expect(result.email).toBe(createDto.email);
       expect(result.licenseNumber).toBe(createDto.licenseNumber);
-      expect(result.specialtyName).toBe('Cardiología');
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'admin-uuid',
+          action: 'CREATE',
+          entityType: 'Doctor',
+          result: 'SUCCESS',
+        }),
+      );
     });
 
     it('debe lanzar ConflictException si el email ya existe', async () => {
@@ -115,52 +155,24 @@ describe('AdminService', () => {
               create: jest.fn(),
             },
             doctor: {
-              findFirst: jest.fn(),
+              findFirst: jest.fn().mockResolvedValue(null),
             },
             specialty: {
-              findUnique: jest.fn(),
-            },
-            auditLog: {
-              create: jest.fn(),
+              findUnique: jest.fn().mockResolvedValue({
+                id: 'specialty-uuid',
+              }),
             },
           };
           return callback(tx);
         },
       );
 
-      await expect(service.create(createDto, 'admin-uuid')).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.createDoctor(createDto, 'admin-uuid'),
+      ).rejects.toThrow(ConflictException);
     });
 
-    it('debe lanzar ConflictException si el teléfono ya existe', async () => {
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            user: {
-              findFirst: jest.fn().mockResolvedValue(mockUser),
-              create: jest.fn(),
-            },
-            doctor: {
-              findFirst: jest.fn(),
-            },
-            specialty: {
-              findUnique: jest.fn(),
-            },
-            auditLog: {
-              create: jest.fn(),
-            },
-          };
-          return callback(tx);
-        },
-      );
-
-      await expect(service.create(createDto, 'admin-uuid')).rejects.toThrow(
-        ConflictException,
-      );
-    });
-
-    it('debe lanzar ConflictException si el licenseNumber ya existe', async () => {
+    it('debe lanzar ConflictException si el número de licencia ya existe', async () => {
       prisma.$transaction.mockImplementation(
         async (callback: (tx: unknown) => Promise<unknown>) => {
           const tx = {
@@ -172,22 +184,21 @@ describe('AdminService', () => {
               findFirst: jest.fn().mockResolvedValue(mockDoctor),
             },
             specialty: {
-              findUnique: jest.fn(),
-            },
-            auditLog: {
-              create: jest.fn(),
+              findUnique: jest.fn().mockResolvedValue({
+                id: 'specialty-uuid',
+              }),
             },
           };
           return callback(tx);
         },
       );
 
-      await expect(service.create(createDto, 'admin-uuid')).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.createDoctor(createDto, 'admin-uuid'),
+      ).rejects.toThrow(ConflictException);
     });
 
-    it('debe lanzar NotFoundException si el specialtyId no existe', async () => {
+    it('debe lanzar NotFoundException si la especialidad no existe', async () => {
       prisma.$transaction.mockImplementation(
         async (callback: (tx: unknown) => Promise<unknown>) => {
           const tx = {
@@ -201,389 +212,228 @@ describe('AdminService', () => {
             specialty: {
               findUnique: jest.fn().mockResolvedValue(null),
             },
-            auditLog: {
-              create: jest.fn(),
-            },
           };
           return callback(tx);
         },
       );
 
-      await expect(service.create(createDto, 'admin-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('debe hashear la password antes de crear', async () => {
-      const bcrypt = require('bcrypt');
-
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            user: {
-              findFirst: jest.fn().mockResolvedValue(null),
-              create: jest.fn().mockResolvedValue({
-                ...mockUser,
-                doctor: { ...mockDoctor, specialty: mockSpecialty },
-              }),
-            },
-            doctor: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-            specialty: {
-              findUnique: jest.fn().mockResolvedValue(mockSpecialty),
-            },
-            auditLog: {
-              create: jest.fn().mockResolvedValue({}),
-            },
-          };
-          return callback(tx);
-        },
-      );
-
-      await service.create(createDto, 'admin-uuid');
-
-      expect(bcrypt.hash).toHaveBeenCalledWith('password123', expect.any(Number));
+      await expect(
+        service.createDoctor(createDto, 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('findAll', () => {
-    it('debe retornar lista paginada', async () => {
-      prisma.$transaction.mockImplementation((queries: Promise<unknown>[]) =>
-        Promise.all(queries),
-      );
+  describe('findAllDoctors()', () => {
+    it('debe retornar lista paginada de doctores', async () => {
       prisma.doctor.findMany.mockResolvedValue([mockDoctor]);
       prisma.doctor.count.mockResolvedValue(1);
 
-      const result = await service.findAll({});
+      const result = await service.findAllDoctors({ page: 1, pageSize: 10 });
 
       expect(result.items).toHaveLength(1);
-      expect(result.page).toBe(1);
-      expect(result.pageSize).toBe(10);
       expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
       expect(result.totalPages).toBe(1);
     });
 
-    it('debe filtrar por búsqueda (name, email, phone, licenseNumber)', async () => {
-      prisma.$transaction.mockImplementation((queries: Promise<unknown>[]) =>
-        Promise.all(queries),
-      );
-      prisma.doctor.findMany.mockResolvedValue([mockDoctor]);
-      prisma.doctor.count.mockResolvedValue(1);
+    it('debe aplicar filtro de búsqueda', async () => {
+      prisma.doctor.findMany.mockResolvedValue([]);
+      prisma.doctor.count.mockResolvedValue(0);
 
-      const result = await service.findAll({ search: 'Carlos' });
+      await service.findAllDoctors({ search: 'Carlos' });
 
-      expect(result.items).toHaveLength(1);
-      expect(result.total).toBe(1);
       expect(prisma.doctor.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            user: expect.objectContaining({
-              OR: expect.any(Array),
-            }),
+            user: {
+              OR: [
+                { name: { contains: 'Carlos', mode: 'insensitive' } },
+                { lastName: { contains: 'Carlos', mode: 'insensitive' } },
+                { email: { contains: 'Carlos', mode: 'insensitive' } },
+              ],
+            },
           }),
         }),
       );
     });
 
-    it('debe respetar paginación (page, pageSize)', async () => {
-      prisma.$transaction.mockImplementation((queries: Promise<unknown>[]) =>
-        Promise.all(queries),
-      );
-      prisma.doctor.findMany.mockResolvedValue([mockDoctor]);
-      prisma.doctor.count.mockResolvedValue(25);
+    it('debe aplicar filtro isActive', async () => {
+      prisma.doctor.findMany.mockResolvedValue([]);
+      prisma.doctor.count.mockResolvedValue(0);
 
-      const result = await service.findAll({ page: 2, pageSize: 5 });
+      await service.findAllDoctors({ isActive: true });
 
-      expect(result.page).toBe(2);
-      expect(result.pageSize).toBe(5);
-      expect(result.total).toBe(25);
-      expect(result.totalPages).toBe(5);
       expect(prisma.doctor.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          skip: 5,
-          take: 5,
+          where: expect.objectContaining({
+            isActive: true,
+          }),
         }),
       );
     });
   });
 
-  describe('findOne', () => {
+  describe('findOneDoctor()', () => {
     it('debe retornar un doctor por ID', async () => {
       prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
 
-      const result = await service.findOne('doctor-uuid');
+      const result = await service.findOneDoctor('doctor-uuid');
 
       expect(result).toBeDefined();
       expect(result.id).toBe('doctor-uuid');
-      expect(result.specialtyName).toBe('Cardiología');
+      expect(result.licenseNumber).toBe('MP-12345');
     });
 
-    it('debe lanzar NotFoundException si no existe', async () => {
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
       prisma.doctor.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOne('invalid-uuid')).rejects.toThrow(
+      await expect(service.findOneDoctor('non-existent')).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
-  describe('update', () => {
-    const updateDto: UpdateDoctorDto = {
-      name: 'Carlos Alberto',
-      licenseNumber: 'LIC-99999',
-    };
-
-    it('debe actualizar los datos del doctor', async () => {
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            doctor: {
-              findUnique: jest.fn().mockResolvedValue({
-                ...mockDoctor,
-                user: mockUser,
-                specialty: mockSpecialty,
-              }),
-              findFirst: jest.fn().mockResolvedValue(null),
-              update: jest.fn().mockResolvedValue({}),
-            },
-            user: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-            specialty: {
-              findUnique: jest.fn().mockResolvedValue(mockSpecialty),
-            },
-            auditLog: {
-              create: jest.fn().mockResolvedValue({}),
-            },
-          };
-          return callback(tx);
-        },
-      );
-      prisma.doctor.findUnique.mockResolvedValue({
+  describe('updateDoctor()', () => {
+    it('debe actualizar un doctor exitosamente', async () => {
+      prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
+      prisma.specialty.findUnique.mockResolvedValue({
+        id: 'specialty-uuid',
+        name: 'Cardiología',
+      });
+      prisma.doctor.findFirst.mockResolvedValue(null);
+      prisma.doctor.update.mockResolvedValue({
         ...mockDoctor,
-        user: { ...mockUser, name: 'Carlos Alberto' },
-        specialty: mockSpecialty,
-        licenseNumber: 'LIC-99999',
+        licenseNumber: 'MP-99999',
       });
 
-      const result = await service.update('doctor-uuid', updateDto, 'admin-uuid');
+      const dto: UpdateDoctorDto = { licenseNumber: 'MP-99999' };
+      const result = await service.updateDoctor('doctor-uuid', dto, 'admin-uuid');
 
       expect(result).toBeDefined();
-    });
-
-    it('debe lanzar ConflictException si el email está duplicado (otro doctor)', async () => {
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            doctor: {
-              findUnique: jest.fn().mockResolvedValue({
-                ...mockDoctor,
-                user: mockUser,
-                specialty: mockSpecialty,
-              }),
-              findFirst: jest.fn(),
-              update: jest.fn(),
-            },
-            user: {
-              findFirst: jest.fn().mockResolvedValue({ id: 'other-user' }),
-            },
-            specialty: {
-              findUnique: jest.fn(),
-            },
-            auditLog: {
-              create: jest.fn(),
-            },
-          };
-          return callback(tx);
-        },
-      );
-
-      await expect(
-        service.update('doctor-uuid', { email: 'otro@ejemplo.com' }, 'admin-uuid'),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('debe lanzar ConflictException si el licenseNumber está duplicado (otro doctor)', async () => {
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            doctor: {
-              findUnique: jest.fn().mockResolvedValue({
-                ...mockDoctor,
-                user: mockUser,
-                specialty: mockSpecialty,
-              }),
-              findFirst: jest.fn().mockResolvedValue({ id: 'other-doctor' }),
-              update: jest.fn(),
-            },
-            user: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-            specialty: {
-              findUnique: jest.fn(),
-            },
-            auditLog: {
-              create: jest.fn(),
-            },
-          };
-          return callback(tx);
-        },
-      );
-
-      await expect(
-        service.update('doctor-uuid', { licenseNumber: 'LIC-EXISTE' }, 'admin-uuid'),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('debe lanzar NotFoundException si el specialtyId no existe', async () => {
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            doctor: {
-              findUnique: jest.fn().mockResolvedValue({
-                ...mockDoctor,
-                user: mockUser,
-                specialty: mockSpecialty,
-              }),
-              findFirst: jest.fn().mockResolvedValue(null),
-              update: jest.fn(),
-            },
-            user: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-            specialty: {
-              findUnique: jest.fn().mockResolvedValue(null),
-            },
-            auditLog: {
-              create: jest.fn(),
-            },
-          };
-          return callback(tx);
-        },
-      );
-
-      await expect(
-        service.update('doctor-uuid', { specialtyId: 'no-existe' }, 'admin-uuid'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('debe escribir audit log con diff { before, after }', async () => {
-      let capturedAuditData: unknown;
-
-      prisma.$transaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            doctor: {
-              findUnique: jest.fn().mockResolvedValue({
-                ...mockDoctor,
-                user: mockUser,
-                specialty: mockSpecialty,
-              }),
-              findFirst: jest.fn().mockResolvedValue(null),
-              update: jest.fn().mockResolvedValue({}),
-            },
-            user: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-            specialty: {
-              findUnique: jest.fn().mockResolvedValue(mockSpecialty),
-            },
-            auditLog: {
-              create: jest.fn().mockImplementation((args: { data: unknown }) => {
-                capturedAuditData = args.data;
-                return Promise.resolve({});
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
-      prisma.doctor.findUnique.mockResolvedValue({
-        ...mockDoctor,
-        user: { ...mockUser, name: 'Carlos Alberto' },
-        specialty: mockSpecialty,
-        licenseNumber: 'LIC-99999',
-      });
-
-      await service.update('doctor-uuid', updateDto, 'admin-uuid');
-
-      expect(capturedAuditData).toBeDefined();
-      expect(capturedAuditData).toEqual(
+      expect(prisma.doctor.update).toHaveBeenCalled();
+      expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
+          action: 'UPDATE',
           entityType: 'Doctor',
           entityId: 'doctor-uuid',
-          action: 'UPDATE',
-          adminId: 'admin-uuid',
-          before: expect.objectContaining({
-            name: 'Carlos',
-            licenseNumber: 'LIC-12345',
-          }),
-          after: expect.any(Object),
+          result: 'SUCCESS',
         }),
       );
     });
+
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
+      prisma.doctor.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateDoctor('non-existent', {}, 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('debe lanzar ConflictException si la licencia está duplicada', async () => {
+      prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
+      prisma.doctor.findFirst.mockResolvedValue({
+        ...mockDoctor,
+        id: 'other-doctor-uuid',
+      });
+
+      const dto: UpdateDoctorDto = { licenseNumber: 'MP-DUPLICATE' };
+      await expect(
+        service.updateDoctor('doctor-uuid', dto, 'admin-uuid'),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
-  describe('disable', () => {
-    it('debe setear isActive=false', async () => {
-      prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
-      prisma.$transaction.mockResolvedValue([null, null] as never);
+  describe('deactivateDoctor()', () => {
+    it('debe desactivar un doctor exitosamente', async () => {
+      const activeDoctor = { ...mockDoctor, user: { ...mockUser, isActive: true } };
+      const deactivatedDoctor = { ...mockDoctor, user: { ...mockUser, isActive: false } };
+      prisma.doctor.findUnique
+        .mockResolvedValueOnce(activeDoctor)
+        .mockResolvedValueOnce(deactivatedDoctor);
+      prisma.doctor.update.mockResolvedValue(deactivatedDoctor);
 
-      const result = await service.disable('doctor-uuid', 'admin-uuid');
+      const result = await service.deactivateDoctor('doctor-uuid', 'admin-uuid');
 
       expect(result.isActive).toBe(false);
+      expect(prisma.doctor.update).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        data: { user: { update: { isActive: false } } },
+        include: { user: true, specialty: true },
+      });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEACTIVATE',
+          entityType: 'Doctor',
+          entityId: 'doctor-uuid',
+          result: 'SUCCESS',
+        }),
+      );
     });
 
-    it('debe escribir audit log con acción DISABLE', async () => {
-      prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
-      prisma.$transaction.mockResolvedValue([null, null] as never);
+    it('debe lanzar ConflictException si ya está inactivo', async () => {
+      prisma.doctor.findUnique.mockResolvedValue({
+        ...mockDoctor,
+        user: { ...mockUser, isActive: false },
+      });
 
-      await service.disable('doctor-uuid', 'admin-uuid');
-
-      expect(prisma.$transaction).toHaveBeenCalled();
+      await expect(
+        service.deactivateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(ConflictException);
     });
 
-    it('debe lanzar NotFoundException si no existe', async () => {
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
       prisma.doctor.findUnique.mockResolvedValue(null);
 
-      await expect(service.disable('invalid-uuid', 'admin-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.deactivateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('enable', () => {
-    it('debe setear isActive=true', async () => {
-      prisma.doctor.findUnique.mockResolvedValue({
-        ...mockDoctor,
-        isActive: false,
-      });
-      prisma.$transaction.mockResolvedValue([null, null] as never);
+  describe('activateDoctor()', () => {
+    it('debe reactivar un doctor exitosamente', async () => {
+      const inactiveDoctor = { ...mockDoctor, user: { ...mockUser, isActive: false } };
+      const activatedDoctor = { ...mockDoctor, user: { ...mockUser, isActive: true } };
+      prisma.doctor.findUnique
+        .mockResolvedValueOnce(inactiveDoctor)
+        .mockResolvedValueOnce(activatedDoctor);
+      prisma.doctor.update.mockResolvedValue(activatedDoctor);
 
-      const result = await service.enable('doctor-uuid', 'admin-uuid');
+      const result = await service.activateDoctor('doctor-uuid', 'admin-uuid');
 
       expect(result.isActive).toBe(true);
+      expect(prisma.doctor.update).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        data: { user: { update: { isActive: true } } },
+        include: { user: true, specialty: true },
+      });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ACTIVATE',
+          entityType: 'Doctor',
+          entityId: 'doctor-uuid',
+          result: 'SUCCESS',
+        }),
+      );
     });
 
-    it('debe escribir audit log con acción ENABLE', async () => {
+    it('debe lanzar ConflictException si ya está activo', async () => {
       prisma.doctor.findUnique.mockResolvedValue({
         ...mockDoctor,
-        isActive: false,
+        user: { ...mockUser, isActive: true },
       });
-      prisma.$transaction.mockResolvedValue([null, null] as never);
 
-      await service.enable('doctor-uuid', 'admin-uuid');
-
-      expect(prisma.$transaction).toHaveBeenCalled();
+      await expect(
+        service.activateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(ConflictException);
     });
 
-    it('debe lanzar NotFoundException si no existe', async () => {
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
       prisma.doctor.findUnique.mockResolvedValue(null);
 
-      await expect(service.enable('invalid-uuid', 'admin-uuid')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.activateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

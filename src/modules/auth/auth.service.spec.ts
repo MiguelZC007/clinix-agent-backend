@@ -26,6 +26,8 @@ describe('AuthService', () => {
     lastName: 'Pérez',
     phone: '+584241234567',
     password: 'hashedPassword',
+    role: 'PATIENT',
+    isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -99,6 +101,8 @@ describe('AuthService', () => {
           lastName: true,
           phone: true,
           password: true,
+          role: true,
+          isActive: true,
         },
       });
       expect(bcrypt.compare).toHaveBeenCalledWith(
@@ -111,6 +115,7 @@ describe('AuthService', () => {
       expect(signAsyncCalls[0]?.[0]).toEqual({
         sub: mockUser.id,
         phone: mockUser.phone,
+        role: mockUser.role,
       });
     });
 

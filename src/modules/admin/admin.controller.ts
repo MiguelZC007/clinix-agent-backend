@@ -3,8 +3,8 @@ import {
   Get,
   Post,
   Patch,
-  Param,
   Body,
+  Param,
   Query,
   ParseUUIDPipe,
   UseGuards,
@@ -16,64 +16,42 @@ import {
   ApiParam,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 import { User } from 'src/core/decorators/user.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from 'src/core/decorators/roles.decorator';
 import { Role } from 'src/core/enum/role.enum';
-import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
 import { AdminService, DoctorListResultDto } from './admin.service';
-import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
-import { DoctorResponseDto } from './dto/doctor-response.dto';
-import { DoctorListQueryDto } from './dto/doctor-list-query.dto';
+import { AuditService } from '../audit/audit.service';
+import { AuditLogQueryDto } from '../audit/dto/audit-log-query.dto';
+import {
+  CreateDoctorDto,
+  UpdateDoctorDto,
+  DoctorResponseDto,
+  DoctorListQueryDto,
+} from './dto';
+
+interface UserContext {
+  id: string;
+  email: string;
+  name: string;
+  lastName: string;
+  phone: string;
+  doctor?: { id: string };
+  patient?: { id: string };
+}
 
 @ApiTags('Admin')
-@Controller('admin/doctors')
+@Controller('admin')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(RolesGuard)
 @Roles(Role.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly auditService: AuditService,
+  ) {}
 
-  @Get()
-  @ApiOperation({ summary: 'Obtener lista de doctores paginada' })
-  @ApiResponse({
-    status: 200,
-    description: 'Lista paginada de doctores',
-    schema: {
-      type: 'object',
-      properties: {
-        items: {
-          type: 'array',
-          items: { $ref: '#/components/schemas/DoctorResponseDto' },
-        },
-        page: { type: 'number' },
-        pageSize: { type: 'number' },
-        total: { type: 'number' },
-        totalPages: { type: 'number' },
-      },
-    } as SchemaObject,
-  })
-  findAll(@Query() query: DoctorListQueryDto): Promise<DoctorListResultDto> {
-    return this.adminService.findAll(query);
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Obtener un doctor por ID' })
-  @ApiParam({ name: 'id', description: 'ID del doctor (UUID)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Doctor encontrado',
-    type: DoctorResponseDto,
-  })
-  @ApiResponse({ status: 404, description: 'Doctor no encontrado' })
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<DoctorResponseDto> {
-    return this.adminService.findOne(id);
-  }
-
-  @Post()
+  @Post('doctors')
   @ApiOperation({ summary: 'Crear un nuevo doctor' })
   @ApiResponse({
     status: 201,
@@ -81,61 +59,117 @@ export class AdminController {
     type: DoctorResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
-  @ApiResponse({ status: 409, description: 'Email o teléfono ya existe' })
-  create(
-    @Body() createDoctorDto: CreateDoctorDto,
-    @User() user: { id: string },
+  @ApiResponse({ status: 409, description: 'Email, teléfono o licencia ya existe' })
+  @ApiResponse({ status: 404, description: 'Especialidad no encontrada' })
+  createDoctor(
+    @Body() dto: CreateDoctorDto,
+    @User() user: UserContext,
   ): Promise<DoctorResponseDto> {
-    return this.adminService.create(createDoctorDto, user.id);
+    return this.adminService.createDoctor(dto, user.id);
   }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar un doctor' })
-  @ApiParam({ name: 'id', description: 'ID del doctor (UUID)' })
+  @Get('doctors')
+  @ApiOperation({ summary: 'Listar doctores con paginación y filtros' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de doctores',
+  })
+  findAllDoctors(
+    @Query() query: DoctorListQueryDto,
+  ): Promise<DoctorListResultDto> {
+    return this.adminService.findAllDoctors(query);
+  }
+
+  @Get('doctors/:id')
+  @ApiOperation({ summary: 'Obtener detalle de un doctor' })
+  @ApiParam({ name: 'id', description: 'ID del doctor' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalle del doctor',
+    type: DoctorResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Doctor no encontrado' })
+  findOneDoctor(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<DoctorResponseDto> {
+    return this.adminService.findOneDoctor(id);
+  }
+
+  @Patch('doctors/:id')
+  @ApiOperation({ summary: 'Actualizar datos de un doctor' })
+  @ApiParam({ name: 'id', description: 'ID del doctor' })
   @ApiResponse({
     status: 200,
     description: 'Doctor actualizado',
     type: DoctorResponseDto,
   })
-  @ApiResponse({ status: 404, description: 'Doctor no encontrado' })
-  @ApiResponse({ status: 409, description: 'Email o teléfono ya existe' })
-  update(
+  @ApiResponse({ status: 404, description: 'Doctor o especialidad no encontrada' })
+  @ApiResponse({ status: 409, description: 'Número de licencia duplicado' })
+  updateDoctor(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateDoctorDto: UpdateDoctorDto,
-    @User() user: { id: string },
+    @Body() dto: UpdateDoctorDto,
+    @User() user: UserContext,
   ): Promise<DoctorResponseDto> {
-    return this.adminService.update(id, updateDoctorDto, user.id);
+    return this.adminService.updateDoctor(id, dto, user.id);
   }
 
-  @Patch(':id/disable')
-  @ApiOperation({ summary: 'Desactivar un doctor' })
-  @ApiParam({ name: 'id', description: 'ID del doctor (UUID)' })
+  @Post('doctors/:id/deactivate')
+  @ApiOperation({ summary: 'Desactivar un doctor (soft delete)' })
+  @ApiParam({ name: 'id', description: 'ID del doctor' })
   @ApiResponse({
     status: 200,
     description: 'Doctor desactivado',
     type: DoctorResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Doctor no encontrado' })
-  disable(
+  @ApiResponse({ status: 409, description: 'Doctor ya está inactivo' })
+  deactivateDoctor(
     @Param('id', ParseUUIDPipe) id: string,
-    @User() user: { id: string },
+    @User() user: UserContext,
   ): Promise<DoctorResponseDto> {
-    return this.adminService.disable(id, user.id);
+    return this.adminService.deactivateDoctor(id, user.id);
   }
 
-  @Patch(':id/enable')
-  @ApiOperation({ summary: 'Activar un doctor' })
-  @ApiParam({ name: 'id', description: 'ID del doctor (UUID)' })
+  @Post('doctors/:id/activate')
+  @ApiOperation({ summary: 'Reactivar un doctor' })
+  @ApiParam({ name: 'id', description: 'ID del doctor' })
   @ApiResponse({
     status: 200,
-    description: 'Doctor activado',
+    description: 'Doctor reactivado',
     type: DoctorResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Doctor no encontrado' })
-  enable(
+  @ApiResponse({ status: 409, description: 'Doctor ya está activo' })
+  activateDoctor(
     @Param('id', ParseUUIDPipe) id: string,
-    @User() user: { id: string },
+    @User() user: UserContext,
   ): Promise<DoctorResponseDto> {
-    return this.adminService.enable(id, user.id);
+    return this.adminService.activateDoctor(id, user.id);
+  }
+
+  @Get('audit-logs')
+  @ApiOperation({ summary: 'Consultar logs de auditoría' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de logs de auditoría',
+  })
+  findAuditLogs(
+    @Query() query: AuditLogQueryDto,
+  ) {
+    return this.auditService.findAll(query);
+  }
+
+  @Get('audit-logs/:id')
+  @ApiOperation({ summary: 'Obtener detalle de un log de auditoría' })
+  @ApiParam({ name: 'id', description: 'ID del log de auditoría' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalle del log de auditoría',
+  })
+  @ApiResponse({ status: 404, description: 'Log de auditoría no encontrado' })
+  findOneAuditLog(
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.auditService.findOne(id);
   }
 }

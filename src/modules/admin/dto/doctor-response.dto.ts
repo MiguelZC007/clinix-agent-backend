@@ -8,6 +8,12 @@ export class DoctorResponseDto {
   id: string;
 
   @ApiProperty({
+    description: 'ID del usuario asociado',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  userId: string;
+
+  @ApiProperty({
     description: 'Correo electrónico del doctor',
     example: 'doctor@ejemplo.com',
   })
@@ -21,7 +27,7 @@ export class DoctorResponseDto {
 
   @ApiProperty({
     description: 'Apellido del doctor',
-    example: 'González',
+    example: 'García',
   })
   lastName: string;
 
@@ -30,18 +36,6 @@ export class DoctorResponseDto {
     example: '+584241234567',
   })
   phone: string;
-
-  @ApiProperty({
-    description: 'Si el usuario está activo',
-    example: true,
-  })
-  isActive: boolean;
-
-  @ApiProperty({
-    description: 'Número de licencia del doctor',
-    example: 'MED-12345',
-  })
-  licenseNumber: string;
 
   @ApiProperty({
     description: 'ID de la especialidad',
@@ -56,7 +50,19 @@ export class DoctorResponseDto {
   specialtyName: string;
 
   @ApiProperty({
-    description: 'Fecha de creación del registro',
+    description: 'Número de licencia médica',
+    example: 'MP-12345',
+  })
+  licenseNumber: string;
+
+  @ApiProperty({
+    description: 'Si el doctor está activo',
+    example: true,
+  })
+  isActive: boolean;
+
+  @ApiProperty({
+    description: 'Fecha de creación',
     example: '2026-01-18T10:30:00.000Z',
   })
   createdAt: Date;

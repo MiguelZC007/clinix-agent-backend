@@ -2,13 +2,17 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
-import { DoctorResponseDto } from './dto/doctor-response.dto';
-import { DoctorListQueryDto } from './dto/doctor-list-query.dto';
+import { AuditService } from '../audit/audit.service';
+import {
+  CreateDoctorDto,
+  UpdateDoctorDto,
+  DoctorResponseDto,
+  DoctorListQueryDto,
+} from './dto';
 import environment from 'src/core/config/environments';
 
 export interface DoctorListResultDto {
@@ -21,23 +25,25 @@ export interface DoctorListResultDto {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AdminService.name);
 
-  async create(
-    createDoctorDto: CreateDoctorDto,
-    actorId: string,
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
+
+  async createDoctor(
+    dto: CreateDoctorDto,
+    adminUserId: string,
   ): Promise<DoctorResponseDto> {
-    const hashedPassword = createDoctorDto.password
-      ? await bcrypt.hash(createDoctorDto.password, environment.SALT_ROUND)
+    const hashedPassword = dto.password
+      ? await bcrypt.hash(dto.password, environment.SALT_ROUND)
       : undefined;
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const doctor = await this.prisma.$transaction(async (tx) => {
       const existingUser = await tx.user.findFirst({
         where: {
-          OR: [
-            { email: createDoctorDto.email },
-            { phone: createDoctorDto.phone },
-          ],
+          OR: [{ email: dto.email }, { phone: dto.phone }],
         },
       });
 
@@ -45,103 +51,109 @@ export class AdminService {
         throw new ConflictException('user-already-exists');
       }
 
-      // Fix: Validate specialtyId exists before create
-      const specialty = await tx.specialty.findUnique({
-        where: { id: createDoctorDto.specialtyId },
-      });
-      if (!specialty) {
-        throw new NotFoundException('specialty-not-found');
-      }
-
-      // Fix: Check licenseNumber uniqueness before create
       const existingLicense = await tx.doctor.findFirst({
-        where: { licenseNumber: createDoctorDto.licenseNumber },
+        where: { licenseNumber: dto.licenseNumber },
       });
+
       if (existingLicense) {
         throw new ConflictException('license-number-already-exists');
       }
 
-      const newUser = await tx.user.create({
+      const specialty = await tx.specialty.findUnique({
+        where: { id: dto.specialtyId },
+      });
+
+      if (!specialty) {
+        throw new NotFoundException('specialty-not-found');
+      }
+
+      return tx.user.create({
         data: {
-          email: createDoctorDto.email,
-          name: createDoctorDto.name,
-          lastName: createDoctorDto.lastName,
-          phone: createDoctorDto.phone,
+          email: dto.email,
+          name: dto.name,
+          lastName: dto.lastName,
+          phone: dto.phone,
           password: hashedPassword,
-          role: 'DOCTOR',
           doctor: {
             create: {
-              specialtyId: createDoctorDto.specialtyId,
-              licenseNumber: createDoctorDto.licenseNumber,
+              specialtyId: dto.specialtyId,
+              licenseNumber: dto.licenseNumber,
             },
           },
         },
         include: {
           doctor: {
-            include: { specialty: true },
+            include: {
+              specialty: true,
+            },
           },
         },
       });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          targetId: newUser.id,
-          action: 'CREATE_DOCTOR',
-          changes: {
-            email: newUser.email,
-            name: newUser.name,
-            lastName: newUser.lastName,
-            phone: newUser.phone,
-            specialtyId: createDoctorDto.specialtyId,
-            licenseNumber: createDoctorDto.licenseNumber,
-          },
-        },
-      });
-
-      return newUser;
     });
 
-    return this.mapToDoctorResponse(user);
+    const response = this.mapToDoctorResponseFromUser(doctor);
+
+    try {
+      await this.auditService.log({
+        userId: adminUserId,
+        action: 'CREATE',
+        entityType: 'Doctor',
+        entityId: response.id,
+        newState: this.sanitizeForAudit(response),
+        result: 'SUCCESS',
+      });
+    } catch (auditError) {
+      this.logger.error(
+        `Failed to audit CREATE doctor: ${auditError instanceof Error ? auditError.message : 'unknown'}`,
+      );
+    }
+
+    return response;
   }
 
-  async findAll(query: DoctorListQueryDto): Promise<DoctorListResultDto> {
+  async findAllDoctors(
+    query: DoctorListQueryDto,
+  ): Promise<DoctorListResultDto> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 10;
     const search = query.search?.trim();
 
-    const userFilter = search
-      ? {
-          user: {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' as const } },
-              { lastName: { contains: search, mode: 'insensitive' as const } },
-              { phone: { contains: search } },
-              { email: { contains: search, mode: 'insensitive' as const } },
-            ],
-          },
-        }
-      : {};
+    const where: Record<string, unknown> = {};
 
-    const where = { ...userFilter };
+    if (search) {
+      where.user = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    if (query.isActive !== undefined) {
+      where.isActive = query.isActive;
+    }
+
+    if (query.specialtyId) {
+      where.specialtyId = query.specialtyId;
+    }
 
     const [doctors, total] = await Promise.all([
       this.prisma.doctor.findMany({
         where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy: { createdAt: 'desc' },
         include: {
           user: true,
           specialty: true,
         },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
       this.prisma.doctor.count({ where }),
     ]);
 
-    const items = doctors.map((d) => this.mapToDoctorResponseFromDoctor(d));
     return {
-      items,
+      items: doctors.map((doc) => this.mapToDoctorResponse(doc)),
       page,
       pageSize,
       total,
@@ -149,7 +161,7 @@ export class AdminService {
     };
   }
 
-  async findOne(id: string): Promise<DoctorResponseDto> {
+  async findOneDoctor(id: string): Promise<DoctorResponseDto> {
     const doctor = await this.prisma.doctor.findUnique({
       where: { id },
       include: {
@@ -162,277 +174,230 @@ export class AdminService {
       throw new NotFoundException('doctor-not-found');
     }
 
-    return this.mapToDoctorResponseFromDoctor(doctor);
+    return this.mapToDoctorResponse(doctor);
   }
 
-  async update(
+  async updateDoctor(
     id: string,
-    updateDoctorDto: UpdateDoctorDto,
-    actorId: string,
+    dto: UpdateDoctorDto,
+    adminUserId: string,
   ): Promise<DoctorResponseDto> {
-    const updatedDoctor = await this.prisma.$transaction(async (tx) => {
-      const doctor = await tx.doctor.findUnique({
-        where: { id },
-        include: { user: true },
-      });
+    const existing = await this.findOneDoctor(id);
 
-      if (!doctor) {
-        throw new NotFoundException('doctor-not-found');
+    if (dto.specialtyId) {
+      const specialty = await this.prisma.specialty.findUnique({
+        where: { id: dto.specialtyId },
+      });
+      if (!specialty) {
+        throw new NotFoundException('specialty-not-found');
       }
-
-      // Fix 6: Validate specialtyId exists before update
-      if (updateDoctorDto.specialtyId) {
-        const specialty = await tx.specialty.findUnique({
-          where: { id: updateDoctorDto.specialtyId },
-        });
-        if (!specialty) {
-          throw new NotFoundException('specialty-not-found');
-        }
-      }
-
-      // Fix 5: Build { before, after } diff for audit log
-      const before: Record<string, any> = {
-        email: doctor.user.email,
-        name: doctor.user.name,
-        lastName: doctor.user.lastName,
-        phone: doctor.user.phone,
-        specialtyId: doctor.specialtyId,
-        licenseNumber: doctor.licenseNumber,
-      };
-
-      const after: Record<string, any> = {};
-      if (updateDoctorDto.email) after.email = updateDoctorDto.email;
-      if (updateDoctorDto.name) after.name = updateDoctorDto.name;
-      if (updateDoctorDto.lastName) after.lastName = updateDoctorDto.lastName;
-      if (updateDoctorDto.phone) after.phone = updateDoctorDto.phone;
-      if (updateDoctorDto.specialtyId) after.specialtyId = updateDoctorDto.specialtyId;
-      if (updateDoctorDto.licenseNumber) after.licenseNumber = updateDoctorDto.licenseNumber;
-
-      const changes = { before, after };
-
-      // Fix 8: hashedPassword inside transaction
-      const hashedPassword = updateDoctorDto.password
-        ? await bcrypt.hash(updateDoctorDto.password, environment.SALT_ROUND)
-        : undefined;
-
-      const userData: Record<string, unknown> = {};
-      if (updateDoctorDto.email) userData.email = updateDoctorDto.email;
-      if (updateDoctorDto.name) userData.name = updateDoctorDto.name;
-      if (updateDoctorDto.lastName) userData.lastName = updateDoctorDto.lastName;
-      if (updateDoctorDto.phone) userData.phone = updateDoctorDto.phone;
-      if (hashedPassword) userData.password = hashedPassword;
-
-      if (updateDoctorDto.email || updateDoctorDto.phone) {
-        const existingUser = await tx.user.findFirst({
-          where: {
-            AND: [
-              { id: { not: doctor.userId } },
-              {
-                OR: [
-                  updateDoctorDto.email
-                    ? { email: updateDoctorDto.email }
-                    : {},
-                  updateDoctorDto.phone
-                    ? { phone: updateDoctorDto.phone }
-                    : {},
-                ].filter((obj) => Object.keys(obj).length > 0),
-              },
-            ],
-          },
-        });
-
-        if (existingUser) {
-          throw new ConflictException('user-already-exists');
-        }
-      }
-
-      // Fix: Check licenseNumber uniqueness on update
-      if (updateDoctorDto.licenseNumber) {
-        const existingLicense = await tx.doctor.findFirst({
-          where: {
-            id: { not: id },
-            licenseNumber: updateDoctorDto.licenseNumber,
-          },
-        });
-        if (existingLicense) {
-          throw new ConflictException('license-number-already-exists');
-        }
-      }
-
-      const doctorData: Record<string, unknown> = {};
-      if (updateDoctorDto.specialtyId) doctorData.specialtyId = updateDoctorDto.specialtyId;
-      if (updateDoctorDto.licenseNumber) doctorData.licenseNumber = updateDoctorDto.licenseNumber;
-
-      const updated = await tx.doctor.update({
-        where: { id },
-        data: {
-          ...doctorData,
-          user: {
-            update: userData,
-          },
-        },
-        include: {
-          user: true,
-          specialty: true,
-        },
-      });
-
-      // Fix 1+2: Audit log INSIDE transaction with actual changes
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          targetId: updated.userId,
-          action: 'UPDATE_DOCTOR',
-          changes,
-        },
-      });
-
-      return updated;
-    });
-
-    return this.mapToDoctorResponseFromDoctor(updatedDoctor);
-  }
-
-  async disable(id: string, actorId: string): Promise<DoctorResponseDto> {
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const doctor = await tx.doctor.findUnique({
-        where: { id },
-        include: { user: true },
-      });
-
-      if (!doctor) {
-        throw new NotFoundException('doctor-not-found');
-      }
-
-      await tx.user.update({
-        where: { id: doctor.userId },
-        data: { isActive: false },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          targetId: doctor.userId,
-          action: 'DISABLE_DOCTOR',
-          changes: { isActive: { before: doctor.user.isActive, after: false } },
-        },
-      });
-
-      return tx.doctor.findUnique({
-        where: { id },
-        include: { user: true, specialty: true },
-      });
-    });
-
-    return this.mapToDoctorResponseFromDoctor(updated!);
-  }
-
-  async enable(id: string, actorId: string): Promise<DoctorResponseDto> {
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const doctor = await tx.doctor.findUnique({
-        where: { id },
-        include: { user: true },
-      });
-
-      if (!doctor) {
-        throw new NotFoundException('doctor-not-found');
-      }
-
-      await tx.user.update({
-        where: { id: doctor.userId },
-        data: { isActive: true },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          targetId: doctor.userId,
-          action: 'ENABLE_DOCTOR',
-          changes: { isActive: { before: doctor.user.isActive, after: true } },
-        },
-      });
-
-      return tx.doctor.findUnique({
-        where: { id },
-        include: { user: true, specialty: true },
-      });
-    });
-
-    return this.mapToDoctorResponseFromDoctor(updated!);
-  }
-
-  private mapToDoctorResponse(user: {
-    id: string;
-    email: string;
-    name: string;
-    lastName: string;
-    phone: string;
-    isActive: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    doctor: {
-      id: string;
-      licenseNumber: string;
-      specialtyId: string;
-      specialty: { name: string };
-    } | null;
-  }): DoctorResponseDto {
-    if (!user.doctor) {
-      return {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        lastName: user.lastName,
-        phone: user.phone,
-        isActive: user.isActive,
-        licenseNumber: '',
-        specialtyId: '',
-        specialtyName: '',
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      };
     }
-    return this.mapToDoctorResponseFromDoctor({
-      ...user.doctor,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      user: {
-        email: user.email,
-        name: user.name,
-        lastName: user.lastName,
-        phone: user.phone,
-        isActive: user.isActive,
+
+    if (dto.licenseNumber) {
+      const existingLicense = await this.prisma.doctor.findFirst({
+        where: {
+          licenseNumber: dto.licenseNumber,
+          NOT: { id },
+        },
+      });
+      if (existingLicense) {
+        throw new ConflictException('license-number-already-exists');
+      }
+    }
+
+    const userData: Record<string, unknown> = {};
+    if (dto.name !== undefined) userData.name = dto.name;
+    if (dto.lastName !== undefined) userData.lastName = dto.lastName;
+
+    const doctorData: Record<string, unknown> = {};
+    if (dto.specialtyId !== undefined) doctorData.specialtyId = dto.specialtyId;
+    if (dto.licenseNumber !== undefined)
+      doctorData.licenseNumber = dto.licenseNumber;
+
+    const updated = await this.prisma.doctor.update({
+      where: { id },
+      data: {
+        ...doctorData,
+        ...(Object.keys(userData).length > 0 && {
+          user: { update: userData },
+        }),
+      },
+      include: {
+        user: true,
+        specialty: true,
       },
     });
+
+    const response = this.mapToDoctorResponse(updated);
+
+    try {
+      await this.auditService.log({
+        userId: adminUserId,
+        action: 'UPDATE',
+        entityType: 'Doctor',
+        entityId: id,
+        previousState: this.sanitizeForAudit(existing),
+        newState: this.sanitizeForAudit(response),
+        result: 'SUCCESS',
+      });
+    } catch (auditError) {
+      this.logger.error(
+        `Failed to audit UPDATE doctor: ${auditError instanceof Error ? auditError.message : 'unknown'}`,
+      );
+    }
+
+    return response;
   }
 
-  private mapToDoctorResponseFromDoctor(doctor: {
-    id: string;
-    licenseNumber: string;
-    specialtyId: string;
-    createdAt: Date;
-    updatedAt: Date;
-    user: {
-      email: string;
-      name: string;
-      lastName: string;
-      phone: string;
-      isActive: boolean;
-    };
-    specialty: { name: string };
-  }): DoctorResponseDto {
+  async deactivateDoctor(
+    id: string,
+    adminUserId: string,
+  ): Promise<DoctorResponseDto> {
+    const existingRaw = await this.prisma.doctor.findUnique({
+      where: { id },
+      include: { user: true, specialty: true },
+    });
+
+    if (!existingRaw) {
+      throw new NotFoundException('doctor-not-found');
+    }
+
+    if (!existingRaw.user.isActive) {
+      throw new ConflictException('doctor-already-inactive');
+    }
+
+    const updated = await this.prisma.doctor.update({
+      where: { id },
+      data: {
+        user: { update: { isActive: false } },
+      },
+      include: { user: true, specialty: true },
+    });
+
+    const response = this.mapToDoctorResponse(updated);
+
+    try {
+      await this.auditService.log({
+        userId: adminUserId,
+        action: 'DEACTIVATE',
+        entityType: 'Doctor',
+        entityId: id,
+        previousState: this.sanitizeForAudit(this.mapToDoctorResponse(existingRaw)),
+        newState: this.sanitizeForAudit(response),
+        result: 'SUCCESS',
+      });
+    } catch (auditError) {
+      this.logger.error(
+        `Failed to audit DEACTIVATE doctor: ${auditError instanceof Error ? auditError.message : 'unknown'}`,
+      );
+    }
+
+    return response;
+  }
+
+  async activateDoctor(
+    id: string,
+    adminUserId: string,
+  ): Promise<DoctorResponseDto> {
+    const existingRaw = await this.prisma.doctor.findUnique({
+      where: { id },
+      include: { user: true, specialty: true },
+    });
+
+    if (!existingRaw) {
+      throw new NotFoundException('doctor-not-found');
+    }
+
+    if (existingRaw.user.isActive) {
+      throw new ConflictException('doctor-already-active');
+    }
+
+    const updated = await this.prisma.doctor.update({
+      where: { id },
+      data: {
+        user: { update: { isActive: true } },
+      },
+      include: { user: true, specialty: true },
+    });
+
+    const response = this.mapToDoctorResponse(updated);
+
+    try {
+      await this.auditService.log({
+        userId: adminUserId,
+        action: 'ACTIVATE',
+        entityType: 'Doctor',
+        entityId: id,
+        previousState: this.sanitizeForAudit(this.mapToDoctorResponse(existingRaw)),
+        newState: this.sanitizeForAudit(response),
+        result: 'SUCCESS',
+      });
+    } catch (auditError) {
+      this.logger.error(
+        `Failed to audit ACTIVATE doctor: ${auditError instanceof Error ? auditError.message : 'unknown'}`,
+      );
+    }
+
+    return response;
+  }
+
+  private mapToDoctorResponse(
+    record: Record<string, unknown>,
+  ): DoctorResponseDto {
+    const user = record.user as Record<string, unknown> | undefined;
+    const specialty = record.specialty as Record<string, unknown> | undefined;
+
     return {
-      id: doctor.id,
-      email: doctor.user.email,
-      name: doctor.user.name,
-      lastName: doctor.user.lastName,
-      phone: doctor.user.phone,
-      isActive: doctor.user.isActive,
-      licenseNumber: doctor.licenseNumber,
-      specialtyId: doctor.specialtyId,
-      specialtyName: doctor.specialty.name,
-      createdAt: doctor.createdAt,
-      updatedAt: doctor.updatedAt,
+      id: record.id as string,
+      userId: record.userId as string,
+      email: (user?.email as string) ?? '',
+      name: (user?.name as string) ?? '',
+      lastName: (user?.lastName as string) ?? '',
+      phone: (user?.phone as string) ?? '',
+      specialtyId: record.specialtyId as string,
+      specialtyName: (specialty?.name as string) ?? '',
+      licenseNumber: record.licenseNumber as string,
+      isActive: (user?.isActive as boolean) ?? true,
+      createdAt: record.createdAt as Date,
+      updatedAt: record.updatedAt as Date,
+    };
+  }
+
+  private mapToDoctorResponseFromUser(
+    userRecord: Record<string, unknown>,
+  ): DoctorResponseDto {
+    const doctor = userRecord.doctor as Record<string, unknown>;
+    const specialty = doctor?.specialty as Record<string, unknown> | undefined;
+
+    return {
+      id: (doctor?.id as string) ?? '',
+      userId: userRecord.id as string,
+      email: (userRecord.email as string) ?? '',
+      name: (userRecord.name as string) ?? '',
+      lastName: (userRecord.lastName as string) ?? '',
+      phone: (userRecord.phone as string) ?? '',
+      specialtyId: (doctor?.specialtyId as string) ?? '',
+      specialtyName: (specialty?.name as string) ?? '',
+      licenseNumber: (doctor?.licenseNumber as string) ?? '',
+      isActive: (doctor?.isActive as boolean) ?? true,
+      createdAt: (doctor?.createdAt as Date) ?? (userRecord.createdAt as Date),
+      updatedAt: (doctor?.updatedAt as Date) ?? (userRecord.updatedAt as Date),
+    };
+  }
+
+  private sanitizeForAudit(
+    dto: DoctorResponseDto,
+  ): Record<string, unknown> {
+    return {
+      id: dto.id,
+      email: dto.email,
+      name: dto.name,
+      lastName: dto.lastName,
+      phone: dto.phone,
+      specialtyId: dto.specialtyId,
+      specialtyName: dto.specialtyName,
+      licenseNumber: dto.licenseNumber,
+      isActive: dto.isActive,
     };
   }
 }

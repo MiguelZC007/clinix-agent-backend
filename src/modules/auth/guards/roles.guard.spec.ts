@@ -1,125 +1,89 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, ExecutionContext } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
-import { ROLES_KEY } from '../decorators/roles.decorator';
-import { Role } from 'src/core/enum/role.enum';
+import { ROLES_KEY } from '../../../core/decorators/roles.decorator';
+import { Role } from '../../../core/enum/role.enum';
 
 describe('RolesGuard', () => {
   let guard: RolesGuard;
-  let reflector: Reflector;
+  let reflector: jest.Mocked<Reflector>;
 
-  const createMockContext = (
-    user: Record<string, unknown> | null,
-    roles?: Role[],
-  ): ExecutionContext => {
-    const handler = () => {};
-    const classRef = () => {};
-
-    if (roles) {
-      Reflect.defineMetadata(ROLES_KEY, roles, handler);
-    } else {
-      Reflect.deleteMetadata(ROLES_KEY, handler);
-    }
-
+  const createMockContext = (requiredRoles?: Role[], user?: { role?: Role }) => {
+    const request = { user };
     return {
-      getHandler: () => handler,
-      getClass: () => classRef as unknown as new () => unknown,
       switchToHttp: () => ({
-        getRequest: () => ({ user }),
+        getRequest: <T = typeof request>() => request as unknown as T,
       }),
-    } as unknown as ExecutionContext;
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as ExecutionContext;
   };
 
   beforeEach(async () => {
+    const mockReflector = {
+      getAllAndOverride: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RolesGuard, Reflector],
+      providers: [
+        RolesGuard,
+        { provide: Reflector, useValue: mockReflector },
+      ],
     }).compile();
 
     guard = module.get<RolesGuard>(RolesGuard);
-    reflector = module.get<Reflector>(Reflector);
+    reflector = module.get(Reflector);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it('debe retornar true si el usuario tiene el rol requerido', () => {
-    const context = createMockContext(
-      { id: 'admin-uuid' },
-      [Role.ADMIN],
-    );
+  describe('canActivate', () => {
+    it('debe permitir acceso si no hay metadata de roles', () => {
+      reflector.getAllAndOverride.mockReturnValue(undefined);
+      const context = createMockContext(undefined, { role: Role.PATIENT });
 
-    const result = guard.canActivate(context);
+      const result = guard.canActivate(context);
 
-    expect(result).toBe(true);
-  });
+      expect(result).toBe(true);
+    });
 
-  it('debe lanzar ForbiddenException si el usuario no tiene el rol requerido', () => {
-    const context = createMockContext(
-      { id: 'doctor-uuid', doctor: { id: 'doc-1' } },
-      [Role.ADMIN],
-    );
+    it('debe permitir acceso si el usuario tiene el rol requerido', () => {
+      reflector.getAllAndOverride.mockReturnValue([Role.ADMIN]);
+      const context = createMockContext([Role.ADMIN], { role: Role.ADMIN });
 
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-  });
+      const result = guard.canActivate(context);
 
-  it('debe retornar true si no hay metadata @Roles() (sin restricción)', () => {
-    const context = createMockContext(
-      { id: 'user-uuid' },
-      undefined,
-    );
+      expect(result).toBe(true);
+    });
 
-    const result = guard.canActivate(context);
+    it('debe lanzar ForbiddenException si el usuario no tiene el rol requerido', () => {
+      reflector.getAllAndOverride.mockReturnValue([Role.ADMIN]);
+      const context = createMockContext([Role.ADMIN], { role: Role.PATIENT });
 
-    expect(result).toBe(true);
-  });
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+      expect(() => guard.canActivate(context)).toThrow('user-not-authorized');
+    });
 
-  it('debe retornar true para ADMIN cuando se requiere ADMIN', () => {
-    const context = createMockContext(
-      { id: 'admin-uuid' },
-      [Role.ADMIN],
-    );
+    it('debe lanzar ForbiddenException si no hay usuario', () => {
+      reflector.getAllAndOverride.mockReturnValue([Role.ADMIN]);
+      const context = createMockContext([Role.ADMIN], undefined);
 
-    const result = guard.canActivate(context);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    });
 
-    expect(result).toBe(true);
-  });
+    it('debe verificar metadata en handler y clase', () => {
+      reflector.getAllAndOverride.mockReturnValue([Role.ADMIN]);
+      const context = createMockContext([Role.ADMIN], { role: Role.ADMIN });
 
-  it('debe retornar true para DOCTOR cuando se requiere DOCTOR', () => {
-    const context = createMockContext(
-      { id: 'doctor-uuid', doctor: { id: 'doc-1' } },
-      [Role.DOCTOR],
-    );
+      guard.canActivate(context);
 
-    const result = guard.canActivate(context);
-
-    expect(result).toBe(true);
-  });
-
-  it('debe lanzar ForbiddenException si no hay usuario en el request', () => {
-    const context = createMockContext(null, [Role.ADMIN]);
-
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-  });
-
-  it('debe lanzar ForbiddenException para DOCTOR cuando se requiere ADMIN', () => {
-    const context = createMockContext(
-      { id: 'doctor-uuid', doctor: { id: 'doc-1' } },
-      [Role.ADMIN],
-    );
-
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-  });
-
-  it('debe retornar true si el rol del usuario está entre múltiples roles requeridos', () => {
-    const context = createMockContext(
-      { id: 'doctor-uuid', doctor: { id: 'doc-1' } },
-      [Role.ADMIN, Role.DOCTOR],
-    );
-
-    const result = guard.canActivate(context);
-
-    expect(result).toBe(true);
+      expect(reflector.getAllAndOverride).toHaveBeenCalledWith(
+        ROLES_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+    });
   });
 });

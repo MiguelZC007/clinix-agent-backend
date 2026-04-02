@@ -26,6 +26,7 @@ model User {
   updatedAt DateTime @updatedAt
   patient   Patient?
   doctor    Doctor?
+  auditLogs AuditLog[]
 }
 
 model Patient {
@@ -232,10 +233,22 @@ model WhatsAppAuthSession {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  actorId   String
-  targetId  String
-  action    String
-  changes   Json
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  action       String
+  entityType   String
+  entityId     String?
+  previousState Json?
+  newState     Json?
+  result       String
+  errorMessage String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

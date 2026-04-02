@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min, IsBoolean, IsUUID } from 'class-validator';
 
 export class DoctorListQueryDto {
   @ApiProperty({
@@ -34,11 +34,34 @@ export class DoctorListQueryDto {
   pageSize?: number;
 
   @ApiProperty({
-    description: 'Búsqueda por nombre, apellido o teléfono',
+    description: 'Búsqueda por nombre, apellido o email',
     example: 'Carlos',
     required: false,
   })
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiProperty({
+    description: 'Filtrar por estado activo',
+    example: true,
+    required: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiProperty({
+    description: 'Filtrar por ID de especialidad',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    required: false,
+  })
+  @IsOptional()
+  @IsUUID('4')
+  specialtyId?: string;
 }
