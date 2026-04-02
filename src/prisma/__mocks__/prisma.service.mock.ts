@@ -20,8 +20,10 @@ export const createMockPrismaService = () => ({
     findUnique: jest.fn(),
     findFirst: jest.fn(),
     findMany: jest.fn(),
+    count: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     delete: jest.fn(),
   },
   specialty: {
@@ -78,6 +80,12 @@ export const createMockPrismaService = () => ({
   },
   revokedToken: {
     findUnique: jest.fn(),
+    create: jest.fn(),
+  },
+  auditLog: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
     create: jest.fn(),
   },
   $queryRaw: jest.fn(),
@@ -155,12 +163,27 @@ export const createMockPrismaService = () => ({
             .mockImplementation(
               async (...args) => await Promise.resolve(undefined),
             ),
+          findFirst: jest
+            .fn()
+            .mockImplementation(
+              async (...args) => await Promise.resolve(undefined),
+            ),
         },
         doctor: {
           findUnique: jest
             .fn()
             .mockImplementation(
               async (...args) => await Promise.resolve(undefined),
+            ),
+          findFirst: jest
+            .fn()
+            .mockImplementation(
+              async (...args) => await Promise.resolve(undefined),
+            ),
+          create: jest
+            .fn()
+            .mockImplementation(
+              async (...args) => await Promise.resolve(args[0]?.data),
             ),
         },
       };

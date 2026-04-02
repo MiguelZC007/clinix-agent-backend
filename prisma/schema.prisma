@@ -14,10 +14,12 @@ model User {
   lastName  String
   phone     String   @unique
   password  String?
+  isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   patient   Patient?
   doctor    Doctor?
+  auditLogs AuditLog[]
 }
 
 model Patient {
@@ -46,7 +48,8 @@ model Doctor {
   user               User            @relation(fields: [userId], references: [id])
   specialtyId        String
   specialty          Specialty       @relation(fields: [specialtyId], references: [id])
-  licenseNumber      String
+  licenseNumber      String          @unique
+  isActive           Boolean         @default(true)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   clinicHistories    ClinicHistory[]
@@ -221,4 +224,25 @@ model WhatsAppAuthSession {
   lastMessageAt      DateTime @default(now())
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  action       String
+  entityType   String
+  entityId     String?
+  previousState Json?
+  newState     Json?
+  result       String
+  errorMessage String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
