@@ -18,7 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { User } from 'src/core/decorators/user.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { IsAdmin } from '../auth/decorators/is-admin.decorator';
+import { Roles } from 'src/core/decorators/roles.decorator';
+import { Role } from 'src/core/enum/role.enum';
 import { AdminService, DoctorListResultDto } from './admin.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditLogQueryDto } from '../audit/dto/audit-log-query.dto';
@@ -43,7 +44,7 @@ interface UserContext {
 @Controller('admin')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(RolesGuard)
-@IsAdmin()
+@Roles(Role.ADMIN)
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,

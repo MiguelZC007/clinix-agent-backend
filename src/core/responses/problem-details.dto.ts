@@ -100,6 +100,9 @@ export enum ErrorCode {
 
   CLINIC_HISTORY_NOT_FOUND = 'clinic-history-not-found',
 
+  ACCOUNT_DISABLED = 'account-disabled',
+  UNAUTHORIZED_ROLE = 'unauthorized-role',
+
   TWILIO_SEND_FAILED = 'twilio-send-failed',
   TWILIO_STATUS_FETCH_FAILED = 'twilio-status-fetch-failed',
   TWILIO_INCOMING_PROCESS_FAILED = 'twilio-incoming-process-failed',
@@ -209,6 +212,15 @@ export const ErrorMessages: Record<ErrorCode, { type: string; title: string }> =
     [ErrorCode.CLINIC_HISTORY_NOT_FOUND]: {
       type: `${ERROR_TYPE_BASE_URL}/clinic-history-not-found`,
       title: 'Historia clínica no encontrada',
+    },
+
+    [ErrorCode.ACCOUNT_DISABLED]: {
+      type: `${ERROR_TYPE_BASE_URL}/account-disabled`,
+      title: 'Cuenta deshabilitada',
+    },
+    [ErrorCode.UNAUTHORIZED_ROLE]: {
+      type: `${ERROR_TYPE_BASE_URL}/unauthorized-role`,
+      title: 'Rol no autorizado',
     },
 
     [ErrorCode.TWILIO_SEND_FAILED]: {

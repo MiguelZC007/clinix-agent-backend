@@ -78,7 +78,6 @@ export class AdminService {
             create: {
               specialtyId: dto.specialtyId,
               licenseNumber: dto.licenseNumber,
-              isActive: true,
             },
           },
         },
@@ -254,25 +253,26 @@ export class AdminService {
     id: string,
     adminUserId: string,
   ): Promise<DoctorResponseDto> {
-    const existing = await this.findOneDoctor(id);
-
-    const { count } = await this.prisma.doctor.updateMany({
-      where: { id, isActive: true },
-      data: { isActive: false },
-    });
-
-    if (count === 0) {
-      throw new ConflictException('doctor-already-inactive');
-    }
-
-    const updated = await this.prisma.doctor.findUnique({
+    const existingRaw = await this.prisma.doctor.findUnique({
       where: { id },
       include: { user: true, specialty: true },
     });
 
-    if (!updated) {
+    if (!existingRaw) {
       throw new NotFoundException('doctor-not-found');
     }
+
+    if (!existingRaw.user.isActive) {
+      throw new ConflictException('doctor-already-inactive');
+    }
+
+    const updated = await this.prisma.doctor.update({
+      where: { id },
+      data: {
+        user: { update: { isActive: false } },
+      },
+      include: { user: true, specialty: true },
+    });
 
     const response = this.mapToDoctorResponse(updated);
 
@@ -282,7 +282,7 @@ export class AdminService {
         action: 'DEACTIVATE',
         entityType: 'Doctor',
         entityId: id,
-        previousState: this.sanitizeForAudit(existing),
+        previousState: this.sanitizeForAudit(this.mapToDoctorResponse(existingRaw)),
         newState: this.sanitizeForAudit(response),
         result: 'SUCCESS',
       });
@@ -299,25 +299,26 @@ export class AdminService {
     id: string,
     adminUserId: string,
   ): Promise<DoctorResponseDto> {
-    const existing = await this.findOneDoctor(id);
-
-    const { count } = await this.prisma.doctor.updateMany({
-      where: { id, isActive: false },
-      data: { isActive: true },
-    });
-
-    if (count === 0) {
-      throw new ConflictException('doctor-already-active');
-    }
-
-    const updated = await this.prisma.doctor.findUnique({
+    const existingRaw = await this.prisma.doctor.findUnique({
       where: { id },
       include: { user: true, specialty: true },
     });
 
-    if (!updated) {
+    if (!existingRaw) {
       throw new NotFoundException('doctor-not-found');
     }
+
+    if (existingRaw.user.isActive) {
+      throw new ConflictException('doctor-already-active');
+    }
+
+    const updated = await this.prisma.doctor.update({
+      where: { id },
+      data: {
+        user: { update: { isActive: true } },
+      },
+      include: { user: true, specialty: true },
+    });
 
     const response = this.mapToDoctorResponse(updated);
 
@@ -327,7 +328,7 @@ export class AdminService {
         action: 'ACTIVATE',
         entityType: 'Doctor',
         entityId: id,
-        previousState: this.sanitizeForAudit(existing),
+        previousState: this.sanitizeForAudit(this.mapToDoctorResponse(existingRaw)),
         newState: this.sanitizeForAudit(response),
         result: 'SUCCESS',
       });
@@ -356,7 +357,7 @@ export class AdminService {
       specialtyId: record.specialtyId as string,
       specialtyName: (specialty?.name as string) ?? '',
       licenseNumber: record.licenseNumber as string,
-      isActive: (record.isActive as boolean) ?? true,
+      isActive: (user?.isActive as boolean) ?? true,
       createdAt: record.createdAt as Date,
       updatedAt: record.updatedAt as Date,
     };

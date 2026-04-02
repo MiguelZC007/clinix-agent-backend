@@ -3,6 +3,7 @@ import { OpenaiService } from '../openai/openai.service';
 import { ConversationService } from '../openai/conversation.service';
 import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 describe('ReplyMessageHandler', () => {
   let handler: ReplyMessageHandler;
@@ -13,6 +14,11 @@ describe('ReplyMessageHandler', () => {
     updateLastInbound: jest.Mock;
     sendReply: jest.Mock;
     splitMessage: jest.Mock;
+  };
+  let mockPrismaService: {
+    doctor: {
+      findUnique: jest.Mock;
+    };
   };
 
   const webhookData = {
@@ -47,11 +53,19 @@ describe('ReplyMessageHandler', () => {
       }),
       splitMessage: jest.fn((text: string) => [text]),
     };
+    mockPrismaService = {
+      doctor: {
+        findUnique: jest.fn().mockResolvedValue({
+          user: { isActive: true },
+        }),
+      },
+    };
 
     handler = new ReplyMessageHandler(
       mockOpenaiService as unknown as OpenaiService,
       mockConversationService as unknown as ConversationService,
       mockAuthSessionService as unknown as AuthSessionService,
+      mockPrismaService as unknown as PrismaService,
       mockTwilioService as unknown as TwilioService,
     );
   });
@@ -89,6 +103,10 @@ describe('ReplyMessageHandler', () => {
       expect(mockConversationService.findDoctorByPhone).toHaveBeenCalledWith(
         webhookData.From,
       );
+      expect(mockPrismaService.doctor.findUnique).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        include: { user: { select: { isActive: true } } },
+      });
       expect(mockAuthSessionService.getOrCreateSession).toHaveBeenCalledWith(
         webhookData.From,
         'doctor-uuid',
@@ -112,6 +130,46 @@ describe('ReplyMessageHandler', () => {
       );
       expect(result.success).toBe(true);
       expect(result.data.responsePartsCount).toBe(1);
+    });
+  });
+
+  describe('when doctor account is disabled', () => {
+    it('should send rejection message and not process the message', async () => {
+      mockPrismaService.doctor.findUnique.mockResolvedValueOnce({
+        user: { isActive: false },
+      });
+
+      const result = await handler.handle(webhookData as never);
+
+      expect(mockPrismaService.doctor.findUnique).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        include: { user: { select: { isActive: true } } },
+      });
+      expect(mockOpenaiService.processMessageFromDoctor).not.toHaveBeenCalled();
+      expect(mockTwilioService.sendReply).toHaveBeenCalledWith(
+        webhookData.To,
+        webhookData.From,
+        'Tu cuenta ha sido deshabilitada. Contacta al administrador.',
+      );
+      expect(mockTwilioService.updateLastInbound).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.message).toBe(
+        'Mensaje rechazado: cuenta de médico deshabilitada',
+      );
+    });
+
+    it('should send rejection message when doctor is not found', async () => {
+      mockPrismaService.doctor.findUnique.mockResolvedValueOnce(null);
+
+      const result = await handler.handle(webhookData as never);
+
+      expect(mockOpenaiService.processMessageFromDoctor).not.toHaveBeenCalled();
+      expect(mockTwilioService.sendReply).toHaveBeenCalledWith(
+        webhookData.To,
+        webhookData.From,
+        'Tu cuenta ha sido deshabilitada. Contacta al administrador.',
+      );
+      expect(result.success).toBe(true);
     });
   });
 });

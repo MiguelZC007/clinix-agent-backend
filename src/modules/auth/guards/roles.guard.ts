@@ -1,37 +1,23 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_ADMIN_KEY } from '../decorators/is-admin.decorator';
-
-interface RequestUser {
-  isAdmin?: boolean;
-}
+import { ROLES_KEY } from '../../../core/decorators/roles.decorator';
+import { Role } from '../../../core/enum/role.enum';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const isAdminRequired = this.reflector.getAllAndOverride<boolean>(
-      IS_ADMIN_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!requiredRoles) return true;
 
-    if (!isAdminRequired) {
-      return true;
+    const { user } = context.switchToHttp().getRequest();
+    if (!user?.role || !requiredRoles.includes(user.role)) {
+      throw new ForbiddenException('user-not-authorized');
     }
-
-    const request = context.switchToHttp().getRequest<{ user?: RequestUser }>();
-    const user = request.user;
-
-    if (!user?.isAdmin) {
-      throw new ForbiddenException('forbidden-admin-only');
-    }
-
     return true;
   }
 }

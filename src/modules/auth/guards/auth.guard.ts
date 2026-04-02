@@ -14,6 +14,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 interface JwtPayload {
   sub: string;
   phone: string;
+  role: string;
   iat: number;
   exp: number;
 }
@@ -64,7 +65,8 @@ export class AuthGuard implements CanActivate {
           name: true,
           lastName: true,
           phone: true,
-          isAdmin: true,
+          role: true,
+          isActive: true,
           patient: { select: { id: true } },
           doctor: { select: { id: true } },
         },

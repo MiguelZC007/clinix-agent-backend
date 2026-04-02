@@ -38,10 +38,9 @@ describe('AdminService', () => {
     userId: 'user-uuid',
     specialtyId: 'specialty-uuid',
     licenseNumber: 'MP-12345',
-    isActive: true,
     createdAt: new Date('2026-01-15'),
     updatedAt: new Date('2026-01-15'),
-    user: mockUser,
+    user: { ...mockUser, isActive: true },
     specialty: {
       id: 'specialty-uuid',
       name: 'Cardiología',
@@ -346,17 +345,20 @@ describe('AdminService', () => {
 
   describe('deactivateDoctor()', () => {
     it('debe desactivar un doctor exitosamente', async () => {
+      const activeDoctor = { ...mockDoctor, user: { ...mockUser, isActive: true } };
+      const deactivatedDoctor = { ...mockDoctor, user: { ...mockUser, isActive: false } };
       prisma.doctor.findUnique
-        .mockResolvedValueOnce(mockDoctor)
-        .mockResolvedValueOnce({ ...mockDoctor, isActive: false });
-      prisma.doctor.updateMany.mockResolvedValue({ count: 1 });
+        .mockResolvedValueOnce(activeDoctor)
+        .mockResolvedValueOnce(deactivatedDoctor);
+      prisma.doctor.update.mockResolvedValue(deactivatedDoctor);
 
       const result = await service.deactivateDoctor('doctor-uuid', 'admin-uuid');
 
       expect(result.isActive).toBe(false);
-      expect(prisma.doctor.updateMany).toHaveBeenCalledWith({
-        where: { id: 'doctor-uuid', isActive: true },
-        data: { isActive: false },
+      expect(prisma.doctor.update).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        data: { user: { update: { isActive: false } } },
+        include: { user: true, specialty: true },
       });
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -371,29 +373,39 @@ describe('AdminService', () => {
     it('debe lanzar ConflictException si ya está inactivo', async () => {
       prisma.doctor.findUnique.mockResolvedValue({
         ...mockDoctor,
-        isActive: false,
+        user: { ...mockUser, isActive: false },
       });
-      prisma.doctor.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.deactivateDoctor('doctor-uuid', 'admin-uuid'),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
+      prisma.doctor.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.deactivateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   describe('activateDoctor()', () => {
     it('debe reactivar un doctor exitosamente', async () => {
+      const inactiveDoctor = { ...mockDoctor, user: { ...mockUser, isActive: false } };
+      const activatedDoctor = { ...mockDoctor, user: { ...mockUser, isActive: true } };
       prisma.doctor.findUnique
-        .mockResolvedValueOnce({ ...mockDoctor, isActive: false })
-        .mockResolvedValueOnce(mockDoctor);
-      prisma.doctor.updateMany.mockResolvedValue({ count: 1 });
+        .mockResolvedValueOnce(inactiveDoctor)
+        .mockResolvedValueOnce(activatedDoctor);
+      prisma.doctor.update.mockResolvedValue(activatedDoctor);
 
       const result = await service.activateDoctor('doctor-uuid', 'admin-uuid');
 
       expect(result.isActive).toBe(true);
-      expect(prisma.doctor.updateMany).toHaveBeenCalledWith({
-        where: { id: 'doctor-uuid', isActive: false },
-        data: { isActive: true },
+      expect(prisma.doctor.update).toHaveBeenCalledWith({
+        where: { id: 'doctor-uuid' },
+        data: { user: { update: { isActive: true } } },
+        include: { user: true, specialty: true },
       });
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -406,12 +418,22 @@ describe('AdminService', () => {
     });
 
     it('debe lanzar ConflictException si ya está activo', async () => {
-      prisma.doctor.findUnique.mockResolvedValue(mockDoctor);
-      prisma.doctor.updateMany.mockResolvedValue({ count: 0 });
+      prisma.doctor.findUnique.mockResolvedValue({
+        ...mockDoctor,
+        user: { ...mockUser, isActive: true },
+      });
 
       await expect(
         service.activateDoctor('doctor-uuid', 'admin-uuid'),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('debe lanzar NotFoundException si el doctor no existe', async () => {
+      prisma.doctor.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.activateDoctor('doctor-uuid', 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

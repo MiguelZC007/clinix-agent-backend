@@ -7,6 +7,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -14,7 +20,8 @@ model User {
   lastName  String
   phone     String   @unique
   password  String?
-  isAdmin   Boolean  @default(false)
+  role      Role     @default(PATIENT)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   patient   Patient?
@@ -48,8 +55,7 @@ model Doctor {
   user               User            @relation(fields: [userId], references: [id])
   specialtyId        String
   specialty          Specialty       @relation(fields: [specialtyId], references: [id])
-  licenseNumber      String          @unique
-  isActive           Boolean         @default(true)
+  licenseNumber      String   @unique
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   clinicHistories    ClinicHistory[]
