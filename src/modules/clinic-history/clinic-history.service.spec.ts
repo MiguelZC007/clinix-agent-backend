@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ClinicHistoryService } from './clinic-history.service';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -13,6 +14,10 @@ import {
 import { CreateClinicHistoryDto } from './dto/create-clinic-history.dto';
 import { CreateClinicHistoryWithoutAppointmentDto } from './dto/create-clinic-history-without-appointment.dto';
 import { FindAllClinicHistoriesQueryDto } from './dto/find-all-clinic-histories-query.dto';
+import {
+  PrescriptionConflictType,
+  PrescriptionConflict,
+} from './dto/prescription-validation.dto';
 
 describe('ClinicHistoryService', () => {
   let service: ClinicHistoryService;
@@ -280,6 +285,12 @@ describe('ClinicHistoryService', () => {
       expect(result.appointmentId).toBeNull();
       expect(prisma.patient.findUnique).toHaveBeenCalledWith({
         where: { id: 'patient-uuid' },
+        select: {
+          id: true,
+          registeredByDoctorId: true,
+          allergies: true,
+          medications: true,
+        },
       });
       expect(prisma.specialty.findUnique).toHaveBeenCalledWith({
         where: { id: 'specialty-uuid' },
@@ -376,6 +387,12 @@ describe('ClinicHistoryService', () => {
       expect(result.appointmentId).toBeNull();
       expect(prisma.patient.findUnique).toHaveBeenCalledWith({
         where: { patientNumber: 1 },
+        select: {
+          id: true,
+          registeredByDoctorId: true,
+          allergies: true,
+          medications: true,
+        },
       });
       expect(prisma.specialty.findUnique).toHaveBeenCalledWith({
         where: { specialtyCode: 1 },
@@ -415,6 +432,12 @@ describe('ClinicHistoryService', () => {
       ).rejects.toThrow(NotFoundException);
       expect(prisma.patient.findUnique).toHaveBeenCalledWith({
         where: { patientNumber: 999 },
+        select: {
+          id: true,
+          registeredByDoctorId: true,
+          allergies: true,
+          medications: true,
+        },
       });
     });
 
@@ -680,6 +703,626 @@ describe('ClinicHistoryService', () => {
       await expect(
         service.findByPatient('patient-uuid', 'doctor-uuid'),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('validatePrescriptionAgainstPatient', () => {
+    // Helper to set up $transaction mock with patient allergies/medications
+    const setupTransactionWithPatientData = (
+      prisma: MockPrismaService,
+      patientData: { allergies?: string[]; medications?: string[] },
+    ) => {
+      const patientWithData = {
+        ...mockPatient,
+        allergies: patientData.allergies ?? [],
+        medications: patientData.medications ?? [],
+      };
+      prisma.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            appointment: {
+              findUnique: prisma.appointment.findUnique,
+            },
+            patient: {
+              findUnique: prisma.patient.findUnique.mockResolvedValue(
+                patientWithData,
+              ),
+            },
+            clinicHistory: {
+              create: prisma.clinicHistory.create,
+            },
+          };
+          return callback(tx);
+        },
+      );
+      return patientWithData;
+    };
+
+    describe('create with prescription - allergy blocking', () => {
+      const createDtoWithPrescription: CreateClinicHistoryDto = {
+        appointmentId: 'appointment-uuid',
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor', 'mareos'],
+        treatment: 'Reposo y medicación',
+        diagnostics: [
+          { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+        ],
+        physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'sistólica/diastólica',
+          },
+        ],
+        prescription: {
+          name: 'Receta para migraña',
+          description: 'Tratamiento para migraña',
+          medications: [
+            {
+              name: 'Penicilina V',
+              quantity: 30,
+              unit: 'tabletas',
+              frequency: 'Cada 8 horas',
+              duration: '7 días',
+              indications: 'Tomar con alimentos',
+              administrationRoute: 'Oral',
+            },
+          ],
+        },
+      };
+
+      it('debe bloquear prescripción cuando medicamento coincide con alergia del paciente (case-insensitive)', async () => {
+        // Patient is allergic to "penicilina"
+        setupTransactionWithPatientData(prisma, {
+          allergies: ['penicilina', 'aspirina'],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        await expect(
+          service.create(createDtoWithPrescription, 'doctor-uuid'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('debe bloquear prescripción y reportar todos los conflictos de alergia', async () => {
+        // Patient allergic to multiple items that match prescribed medications
+        setupTransactionWithPatientData(prisma, {
+          allergies: ['sulfa', 'penicilina'],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        try {
+          await service.create(createDtoWithPrescription, 'doctor-uuid');
+          fail('Expected BadRequestException to be thrown');
+        } catch (error) {
+          expect(error).toBeInstanceOf(BadRequestException);
+          const response = (error as BadRequestException).getResponse() as Record<string, unknown>;
+          expect(response).toHaveProperty('code', 'PRESCRIPTION_ALLERGY_CONFLICT');
+          expect(response).toHaveProperty('conflicts');
+          const conflicts = response.conflicts as PrescriptionConflict[];
+          expect(conflicts).toBeInstanceOf(Array);
+          expect(conflicts.length).toBeGreaterThan(0);
+          // Verify the conflict has required fields
+          conflicts.forEach((conflict) => {
+            expect(conflict).toHaveProperty('medication');
+            expect(conflict).toHaveProperty('matchedAgainst');
+            expect(conflict).toHaveProperty('type', PrescriptionConflictType.ALLERGY);
+          });
+        }
+      });
+
+      it('debe bloquear con alergia aunque tenga mayúsculas/minúsculas diferentes', async () => {
+        // Patient allergic to "PENICILINA" (uppercase)
+        setupTransactionWithPatientData(prisma, {
+          allergies: ['PENICILINA'],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        await expect(
+          service.create(createDtoWithPrescription, 'doctor-uuid'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('debe permitir prescripción cuando paciente no tiene alergias', async () => {
+        const patientNoAllergies = setupTransactionWithPatientData(prisma, {
+          allergies: [],
+          medications: [],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+        prisma.clinicHistory.create.mockResolvedValue({
+          ...mockClinicHistory,
+          patient: patientNoAllergies,
+          prescription: {
+            id: 'prescription-uuid',
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            createdAt: new Date(),
+            prescriptionMedications: [
+              {
+                id: 'med-uuid',
+                name: 'Penicilina V',
+                quantity: 30,
+                unit: 'tabletas',
+                frequency: 'Cada 8 horas',
+                duration: '7 días',
+                indications: 'Tomar con alimentos',
+                administrationRoute: 'Oral',
+                description: null,
+              },
+            ],
+          },
+        });
+
+        const result = await service.create(createDtoWithPrescription, 'doctor-uuid');
+        expect(result).toBeDefined();
+        expect(result.prescription).toBeDefined();
+        expect(result.warnings ?? []).toHaveLength(0);
+      });
+    });
+
+    describe('create with prescription - medication warning', () => {
+      const createDtoWithPrescription: CreateClinicHistoryDto = {
+        appointmentId: 'appointment-uuid',
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor', 'mareos'],
+        treatment: 'Reposo y medicación',
+        diagnostics: [
+          { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+        ],
+        physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'sistólica/diastólica',
+          },
+        ],
+        prescription: {
+          name: 'Receta para migraña',
+          description: 'Tratamiento para migraña',
+          medications: [
+            {
+              name: 'Metformina',
+              quantity: 30,
+              unit: 'tabletas',
+              frequency: 'Cada 12 horas',
+              duration: '30 días',
+              indications: 'Tomar con alimentos',
+              administrationRoute: 'Oral',
+            },
+          ],
+        },
+      };
+
+      it('debe crear prescripción y retornar warning cuando medicamento coincide con medicación actual del paciente', async () => {
+        // Patient is on "metformina 500mg"
+        const patientWithMed = setupTransactionWithPatientData(prisma, {
+          allergies: [],
+          medications: ['metformina 500mg'],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+        prisma.clinicHistory.create.mockResolvedValue({
+          ...mockClinicHistory,
+          patient: patientWithMed,
+          prescription: {
+            id: 'prescription-uuid',
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            createdAt: new Date(),
+            prescriptionMedications: [
+              {
+                id: 'med-uuid',
+                name: 'Metformina',
+                quantity: 30,
+                unit: 'tabletas',
+                frequency: 'Cada 12 horas',
+                duration: '30 días',
+                indications: 'Tomar con alimentos',
+                administrationRoute: 'Oral',
+                description: null,
+              },
+            ],
+          },
+        });
+
+        const result = await service.create(createDtoWithPrescription, 'doctor-uuid');
+
+        expect(result).toBeDefined();
+        expect(result.prescription).toBeDefined();
+        expect(result).toHaveProperty('warnings');
+        const warnings = (result as unknown as { warnings: PrescriptionConflict[] }).warnings;
+        expect(warnings).toBeInstanceOf(Array);
+        expect(warnings.length).toBeGreaterThan(0);
+        expect(warnings[0].type).toBe(PrescriptionConflictType.MEDICATION);
+      });
+
+      it('debe acumular múltiples advertencias de medicamentos', async () => {
+        // Patient is on multiple medications
+        const patientWithMeds = setupTransactionWithPatientData(prisma, {
+          allergies: [],
+          medications: ['aspirina', 'omeprazol'],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        const dtoWithMultipleMeds: CreateClinicHistoryDto = {
+          ...createDtoWithPrescription,
+          prescription: {
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            medications: [
+              {
+                name: 'Aspirina',
+                quantity: 30,
+                unit: 'tabletas',
+                frequency: 'Cada 8 horas',
+                duration: '7 días',
+                indications: 'Tomar con alimentos',
+                administrationRoute: 'Oral',
+              },
+              {
+                name: 'Omeprazol',
+                quantity: 30,
+                unit: 'tabletas',
+                frequency: 'Cada 24 horas',
+                duration: '30 días',
+                indications: 'Tomar en ayunas',
+                administrationRoute: 'Oral',
+              },
+            ],
+          },
+        };
+
+        prisma.clinicHistory.create.mockResolvedValue({
+          ...mockClinicHistory,
+          patient: patientWithMeds,
+          prescription: {
+            id: 'prescription-uuid',
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            createdAt: new Date(),
+            prescriptionMedications: [],
+          },
+        });
+
+        const result = await service.create(dtoWithMultipleMeds, 'doctor-uuid');
+
+        expect(result).toBeDefined();
+        expect(result).toHaveProperty('warnings');
+        const warnings = (result as unknown as { warnings: PrescriptionConflict[] }).warnings;
+        expect(warnings.length).toBe(2);
+      });
+
+      it('debe crear prescripción exitosamente cuando no hay conflictos', async () => {
+        const patientClean = setupTransactionWithPatientData(prisma, {
+          allergies: [],
+          medications: [],
+        });
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+        prisma.clinicHistory.create.mockResolvedValue({
+          ...mockClinicHistory,
+          patient: patientClean,
+          prescription: {
+            id: 'prescription-uuid',
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            createdAt: new Date(),
+            prescriptionMedications: [],
+          },
+        });
+
+        const result = await service.create(createDtoWithPrescription, 'doctor-uuid');
+
+        expect(result).toBeDefined();
+        expect(result.warnings ?? []).toHaveLength(0);
+      });
+    });
+
+    describe('createWithoutAppointment with prescription - allergy blocking', () => {
+      // DTO for allergy blocking tests (patient has allergy to penicilina)
+      const createWithoutAppointmentDtoWithAllergy: CreateClinicHistoryWithoutAppointmentDto = {
+        patientId: 'patient-uuid',
+        specialtyId: 'specialty-uuid',
+        consultationReason: 'Dolor de cabeza',
+        symptoms: ['dolor', 'mareos'],
+        treatment: 'Reposo y medicación',
+        diagnostics: [
+          { name: 'Migraña', description: 'Dolor de cabeza crónico' },
+        ],
+        physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+        vitalSigns: [
+          {
+            name: 'Presión arterial',
+            value: '120/80',
+            unit: 'mmHg',
+            measurement: 'sistólica/diastólica',
+          },
+        ],
+        prescription: {
+          name: 'Receta para migraña',
+          description: 'Tratamiento para migraña',
+          medications: [
+            {
+              name: 'Penicilina V',
+              quantity: 30,
+              unit: 'tabletas',
+              frequency: 'Cada 8 horas',
+              duration: '7 días',
+              indications: 'Tomar con alimentos',
+              administrationRoute: 'Oral',
+            },
+          ],
+        },
+      };
+
+      beforeEach(() => {
+        prisma.$transaction.mockImplementation(
+          async (callback: (tx: unknown) => Promise<unknown>) => {
+            const tx = {
+              patient: {
+                findUnique: prisma.patient.findUnique,
+              },
+              specialty: {
+                findUnique: prisma.specialty.findUnique,
+              },
+              doctor: {
+                findUnique: prisma.doctor.findUnique,
+              },
+              clinicHistory: {
+                create: prisma.clinicHistory.create,
+              },
+            };
+            return callback(tx);
+          },
+        );
+      });
+
+      it('debe bloquear prescripción en createWithoutAppointment cuando hay conflicto de alergia', async () => {
+        const patientWithAllergy = {
+          ...mockPatient,
+          allergies: ['penicilina'],
+          medications: [],
+        };
+        prisma.patient.findUnique.mockResolvedValue(patientWithAllergy);
+        prisma.specialty.findUnique.mockResolvedValue({
+          id: 'specialty-uuid',
+          name: 'Cardiología',
+        });
+        prisma.doctor.findUnique.mockResolvedValue({
+          ...mockDoctor,
+          specialtyId: 'specialty-uuid',
+        });
+
+        await expect(
+          service.createWithoutAppointment('doctor-uuid', createWithoutAppointmentDtoWithAllergy),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('debe retornar warning en createWithoutAppointment cuando hay conflicto de medicación', async () => {
+        // Patient with medicación but NO allergy - should get warning but prescription created
+        const patientWithMed = {
+          ...mockPatient,
+          allergies: [],
+          medications: ['metformina 500mg'],
+        };
+        prisma.patient.findUnique.mockResolvedValue(patientWithMed);
+        prisma.specialty.findUnique.mockResolvedValue({
+          id: 'specialty-uuid',
+          name: 'Cardiología',
+        });
+        prisma.doctor.findUnique.mockResolvedValue({
+          ...mockDoctor,
+          specialtyId: 'specialty-uuid',
+        });
+        prisma.clinicHistory.create.mockResolvedValue({
+          ...mockClinicHistory,
+          appointmentId: null,
+          patient: patientWithMed,
+          prescription: {
+            id: 'prescription-uuid',
+            name: 'Receta para migraña',
+            description: 'Tratamiento para migraña',
+            createdAt: new Date(),
+            prescriptionMedications: [],
+          },
+        });
+
+        // DTO with Metformina to match patient's "metformina 500mg"
+        const dtoWithMetformina: CreateClinicHistoryWithoutAppointmentDto = {
+          ...createWithoutAppointmentDtoWithAllergy,
+          prescription: {
+            name: 'Receta para diabetes',
+            description: 'Tratamiento para diabetes',
+            medications: [
+              {
+                name: 'Metformina',
+                quantity: 30,
+                unit: 'tabletas',
+                frequency: 'Cada 12 horas',
+                duration: '30 días',
+                indications: 'Tomar con alimentos',
+                administrationRoute: 'Oral',
+              },
+            ],
+          },
+        };
+
+        const result = await service.createWithoutAppointment(
+          'doctor-uuid',
+          dtoWithMetformina,
+        );
+
+        expect(result).toBeDefined();
+        expect(result).toHaveProperty('warnings');
+        const warnings = (result as unknown as { warnings: PrescriptionConflict[] }).warnings;
+        expect(warnings.length).toBeGreaterThan(0);
+        expect(warnings[0].type).toBe(PrescriptionConflictType.MEDICATION);
+      });
+    });
+
+    describe('edge cases', () => {
+      it('debe manejar paciente sin alergias ni medicamentos de forma limpia', async () => {
+        prisma.$transaction.mockImplementation(
+          async (callback: (tx: unknown) => Promise<unknown>) => {
+            const tx = {
+              appointment: {
+                findUnique: prisma.appointment.findUnique,
+              },
+              patient: {
+                findUnique: prisma.patient.findUnique.mockResolvedValue({
+                  ...mockPatient,
+                  allergies: [],
+                  medications: [],
+                }),
+              },
+              clinicHistory: {
+                create: prisma.clinicHistory.create.mockResolvedValue({
+                  ...mockClinicHistory,
+                  prescription: null,
+                }),
+              },
+            };
+            return callback(tx);
+          },
+        );
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        const dtoNoPrescription: CreateClinicHistoryDto = {
+          appointmentId: 'appointment-uuid',
+          consultationReason: 'Dolor de cabeza',
+          symptoms: ['dolor', 'mareos'],
+          treatment: 'Reposo',
+          diagnostics: [{ name: 'Migraña', description: 'Dolor de cabeza crónico' }],
+          physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+          vitalSigns: [
+            {
+              name: 'Presión arterial',
+              value: '120/80',
+              unit: 'mmHg',
+              measurement: 'sistólica/diastólica',
+            },
+          ],
+        };
+
+        const result = await service.create(dtoNoPrescription, 'doctor-uuid');
+        expect(result).toBeDefined();
+        expect(result.warnings ?? []).toHaveLength(0);
+      });
+
+      it('debe manejar lista de medicamentos vacía en la prescripción', async () => {
+        prisma.$transaction.mockImplementation(
+          async (callback: (tx: unknown) => Promise<unknown>) => {
+            const tx = {
+              appointment: {
+                findUnique: prisma.appointment.findUnique,
+              },
+              patient: {
+                findUnique: prisma.patient.findUnique.mockResolvedValue({
+                  ...mockPatient,
+                  allergies: ['penicilina'],
+                  medications: [],
+                }),
+              },
+              clinicHistory: {
+                create: prisma.clinicHistory.create.mockResolvedValue({
+                  ...mockClinicHistory,
+                  prescription: null,
+                }),
+              },
+            };
+            return callback(tx);
+          },
+        );
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        const dtoEmptyMeds: CreateClinicHistoryDto = {
+          appointmentId: 'appointment-uuid',
+          consultationReason: 'Dolor de cabeza',
+          symptoms: ['dolor', 'mareos'],
+          treatment: 'Reposo',
+          diagnostics: [{ name: 'Migraña', description: 'Dolor de cabeza crónico' }],
+          physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+          vitalSigns: [
+            {
+              name: 'Presión arterial',
+              value: '120/80',
+              unit: 'mmHg',
+              measurement: 'sistólica/diastólica',
+            },
+          ],
+          prescription: {
+            name: 'Receta vacía',
+            description: 'Sin medicamentos',
+            medications: [],
+          },
+        };
+
+        // With empty medications list, no validation should fail
+        const result = await service.create(dtoEmptyMeds, 'doctor-uuid');
+        expect(result).toBeDefined();
+      });
+
+      it('debe hacer matching substring (medicamento más largo contiene alergia)', async () => {
+        prisma.$transaction.mockImplementation(
+          async (callback: (tx: unknown) => Promise<unknown>) => {
+            const tx = {
+              appointment: {
+                findUnique: prisma.appointment.findUnique,
+              },
+              patient: {
+                findUnique: prisma.patient.findUnique.mockResolvedValue({
+                  ...mockPatient,
+                  allergies: ['sulfa'],
+                  medications: [],
+                }),
+              },
+              clinicHistory: {
+                create: prisma.clinicHistory.create,
+              },
+            };
+            return callback(tx);
+          },
+        );
+        prisma.appointment.findUnique.mockResolvedValue(mockAppointment);
+
+        const dtoWithSulfonamide: CreateClinicHistoryDto = {
+          appointmentId: 'appointment-uuid',
+          consultationReason: 'Dolor de cabeza',
+          symptoms: ['dolor', 'mareos'],
+          treatment: 'Reposo',
+          diagnostics: [{ name: 'Migraña', description: 'Dolor de cabeza crónico' }],
+          physicalExams: [{ name: 'Examen neurológico', description: 'Normal' }],
+          vitalSigns: [
+            {
+              name: 'Presión arterial',
+              value: '120/80',
+              unit: 'mmHg',
+              measurement: 'sistólica/diastólica',
+            },
+          ],
+          prescription: {
+            name: 'Receta para infección',
+            description: 'Antibiótico',
+            medications: [
+              {
+                name: 'Sulfametoxazol-Trimetroprim',
+                quantity: 20,
+                unit: 'tabletas',
+                frequency: 'Cada 12 horas',
+                duration: '10 días',
+                indications: 'Tomar con alimentos',
+                administrationRoute: 'Oral',
+              },
+            ],
+          },
+        };
+
+        // "sulfa" is a substring of "Sulfametoxazol" → should block
+        await expect(
+          service.create(dtoWithSulfonamide, 'doctor-uuid'),
+        ).rejects.toThrow(BadRequestException);
+      });
     });
   });
 });

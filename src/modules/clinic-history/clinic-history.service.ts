@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -20,6 +21,11 @@ import {
   ClinicHistoryDoctorDto,
 } from './dto/clinic-history-response.dto';
 import { PatientClinicHistoryFilterOptionsDto } from './dto/patient-clinic-history-filter-options.dto';
+import {
+  PrescriptionConflictType,
+  PrescriptionConflict,
+} from './dto/prescription-validation.dto';
+import { CreatePrescriptionMedicationDto } from './dto/create-prescription-medication.dto';
 
 export interface ClinicHistoryListResultDto {
   items: ClinicHistoryResponseDto[];
@@ -37,6 +43,8 @@ export class ClinicHistoryService {
     createClinicHistoryDto: CreateClinicHistoryDto,
     doctorId: string,
   ): Promise<ClinicHistoryResponseDto> {
+    let warnings: PrescriptionConflict[] = [];
+
     const clinicHistory = await this.prisma.$transaction(async (tx) => {
       const appointment = await tx.appointment.findUnique({
         where: { id: createClinicHistoryDto.appointmentId },
@@ -59,13 +67,36 @@ export class ClinicHistoryService {
         throw new ForbiddenException('clinic-history-not-owned-by-doctor');
       }
 
-      // Verify patient belongs to the requesting doctor
+      // Verify patient belongs to the requesting doctor and get allergies/medications
       const patient = await tx.patient.findUnique({
         where: { id: appointment.patientId },
-        select: { registeredByDoctorId: true },
+        select: {
+          registeredByDoctorId: true,
+          allergies: true,
+          medications: true,
+        },
       });
       if (!patient || patient.registeredByDoctorId !== doctorId) {
         throw new ForbiddenException('patient-not-owned-by-doctor');
+      }
+
+      // Validate prescription against patient allergies/medications
+      if (createClinicHistoryDto.prescription?.medications) {
+        const validationResult = this.validatePrescriptionAgainstPatient(
+          createClinicHistoryDto.prescription.medications,
+          { allergies: patient.allergies, medications: patient.medications },
+        );
+
+        if (validationResult.blockingErrors.length > 0) {
+          throw new BadRequestException({
+            code: 'PRESCRIPTION_ALLERGY_CONFLICT',
+            message:
+              'Prescription contains medications that conflict with patient allergies',
+            conflicts: validationResult.blockingErrors,
+          });
+        }
+
+        warnings = validationResult.warnings;
       }
 
       return tx.clinicHistory.create({
@@ -134,13 +165,19 @@ export class ClinicHistoryService {
       });
     });
 
-    return this.mapToClinicHistoryResponse(clinicHistory);
+    const response = this.mapToClinicHistoryResponse(clinicHistory);
+    if (warnings.length > 0) {
+      response.warnings = warnings;
+    }
+    return response;
   }
 
   async createWithoutAppointment(
     doctorId: string,
     dto: CreateClinicHistoryWithoutAppointmentDto,
   ): Promise<ClinicHistoryResponseDto> {
+    let warnings: PrescriptionConflict[] = [];
+
     const clinicHistory = await this.prisma.$transaction(async (tx) => {
       let resolvedPatientId: string;
       let resolvedSpecialtyId: string;
@@ -151,12 +188,22 @@ export class ClinicHistoryService {
         typeof dto.specialtyCode === 'number' &&
         Number.isInteger(dto.specialtyCode);
 
-      let patient: { id: string };
+      let patient: {
+        id: string;
+        allergies: string[];
+        medications: string[];
+      };
       let specialty: { id: string };
 
       if (useNumbers) {
         const patientByNumber = await tx.patient.findUnique({
           where: { patientNumber: dto.patientNumber },
+          select: {
+            id: true,
+            registeredByDoctorId: true,
+            allergies: true,
+            medications: true,
+          },
         });
         if (!patientByNumber) {
           throw new NotFoundException('patient-not-found');
@@ -182,6 +229,12 @@ export class ClinicHistoryService {
         resolvedSpecialtyId = dto.specialtyId;
         const patientFound = await tx.patient.findUnique({
           where: { id: resolvedPatientId },
+          select: {
+            id: true,
+            registeredByDoctorId: true,
+            allergies: true,
+            medications: true,
+          },
         });
         if (!patientFound) {
           throw new NotFoundException('patient-not-found');
@@ -205,6 +258,25 @@ export class ClinicHistoryService {
       });
       if (!doctor) {
         throw new NotFoundException('doctor-not-found');
+      }
+
+      // Validate prescription against patient allergies/medications
+      if (dto.prescription?.medications) {
+        const validationResult = this.validatePrescriptionAgainstPatient(
+          dto.prescription.medications,
+          { allergies: patient.allergies, medications: patient.medications },
+        );
+
+        if (validationResult.blockingErrors.length > 0) {
+          throw new BadRequestException({
+            code: 'PRESCRIPTION_ALLERGY_CONFLICT',
+            message:
+              'Prescription contains medications that conflict with patient allergies',
+            conflicts: validationResult.blockingErrors,
+          });
+        }
+
+        warnings = validationResult.warnings;
       }
 
       return tx.clinicHistory.create({
@@ -271,7 +343,11 @@ export class ClinicHistoryService {
       });
     });
 
-    return this.mapToClinicHistoryResponse(clinicHistory);
+    const response = this.mapToClinicHistoryResponse(clinicHistory);
+    if (warnings.length > 0) {
+      response.warnings = warnings;
+    }
+    return response;
   }
 
   async findAll(
@@ -517,6 +593,61 @@ export class ClinicHistoryService {
     if (conditions.length === 0) return {};
     if (conditions.length === 1) return conditions[0];
     return { AND: conditions };
+  }
+
+  private validatePrescriptionAgainstPatient(
+    medications: CreatePrescriptionMedicationDto[],
+    patient: { allergies: string[]; medications: string[] },
+  ): { blockingErrors: PrescriptionConflict[]; warnings: PrescriptionConflict[] } {
+    const blockingErrors: PrescriptionConflict[] = [];
+    const warnings: PrescriptionConflict[] = [];
+
+    // If no medications in prescription, nothing to validate
+    if (!medications || medications.length === 0) {
+      return { blockingErrors, warnings };
+    }
+
+    for (const medication of medications) {
+      const medicationNameLower = medication.name.toLowerCase();
+
+      // Check against patient allergies (blocking)
+      // Use bidirectional matching: medication contains allergy OR allergy contains medication
+      for (const allergy of patient.allergies) {
+        const allergyTrimmed = allergy.trim();
+        if (!allergyTrimmed) continue;
+        const allergyLower = allergyTrimmed.toLowerCase();
+        if (
+          medicationNameLower.includes(allergyLower) ||
+          allergyLower.includes(medicationNameLower)
+        ) {
+          blockingErrors.push({
+            medication: medication.name,
+            matchedAgainst: allergyTrimmed,
+            type: PrescriptionConflictType.ALLERGY,
+          });
+        }
+      }
+
+      // Check against patient current medications (warning)
+      // Use bidirectional matching: prescribed med contains patient med OR patient med contains prescribed med
+      for (const currentMed of patient.medications) {
+        const currentMedTrimmed = currentMed.trim();
+        if (!currentMedTrimmed) continue;
+        const currentMedLower = currentMedTrimmed.toLowerCase();
+        if (
+          medicationNameLower.includes(currentMedLower) ||
+          currentMedLower.includes(medicationNameLower)
+        ) {
+          warnings.push({
+            medication: medication.name,
+            matchedAgainst: currentMedTrimmed,
+            type: PrescriptionConflictType.MEDICATION,
+          });
+        }
+      }
+    }
+
+    return { blockingErrors, warnings };
   }
 
   private mapToClinicHistoryResponse(clinicHistory: {

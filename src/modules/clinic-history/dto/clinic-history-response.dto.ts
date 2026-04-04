@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PrescriptionConflict } from './prescription-validation.dto';
 
 export class DiagnosticResponseDto {
   @ApiProperty({
@@ -345,4 +346,11 @@ export class ClinicHistoryResponseDto {
     example: '2026-01-18T10:30:00.000Z',
   })
   updatedAt: Date;
+
+  @ApiProperty({
+    description: 'Advertencias de validación de prescripción (ej. conflictos con medicamentos actuales del paciente)',
+    type: [PrescriptionConflict],
+    required: false,
+  })
+  warnings?: PrescriptionConflict[];
 }
