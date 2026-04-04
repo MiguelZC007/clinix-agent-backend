@@ -4,6 +4,7 @@ import { Conversation, Message } from '@prisma/client';
 import environment from 'src/core/config/environments';
 import OpenAI from 'openai';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
+import { countTokens } from './utils/token-counter';
 
 interface ConversationMessage {
   role: 'user' | 'assistant' | 'system';
@@ -16,7 +17,7 @@ interface ConversationContext {
 }
 
 const SESSION_TIMEOUT_MINUTES = 30;
-const MESSAGES_THRESHOLD_FOR_SUMMARY = 15;
+const MESSAGES_THRESHOLD_FOR_SUMMARY = 8;
 const MESSAGES_TO_SUMMARIZE = 5;
 const CONTEXT_TOKEN_LIMIT = 120_000;
 
@@ -94,7 +95,7 @@ export class ConversationService {
         data: { lastActivityAt: new Date() },
       });
 
-      const messages = this.buildContextMessages(existingConversation);
+      const messages = await this.buildContextMessages(existingConversation);
 
       return {
         conversation: existingConversation,
@@ -135,15 +136,15 @@ export class ConversationService {
     };
   }
 
-  private buildContextMessages(
+  private async buildContextMessages(
     conversation: Conversation & { messages: Message[] },
-  ): ConversationMessage[] {
-    const systemTokens = this.estimateTokenCount(conversation.systemPrompt);
+  ): Promise<ConversationMessage[]> {
+    const systemTokens = await this.estimateTokenCount(conversation.systemPrompt);
     const summaryContent = conversation.summary
       ? `Resumen de la conversación anterior:\n${conversation.summary}`
       : null;
     const summaryTokens = summaryContent
-      ? this.estimateTokenCount(summaryContent)
+      ? await this.estimateTokenCount(summaryContent)
       : 0;
     const budget = CONTEXT_TOKEN_LIMIT - systemTokens - summaryTokens;
     if (budget <= 0) {
@@ -153,9 +154,10 @@ export class ConversationService {
     let used = 0;
     for (let i = conversation.messages.length - 1; i >= 0; i--) {
       const msg = conversation.messages[i];
-      if (used + msg.tokenCount > budget) break;
+      const tokens = msg.tokenCount ?? 0;
+      if (used + tokens > budget) break;
       selected.unshift(msg);
-      used += msg.tokenCount;
+      used += tokens;
     }
     const messages: ConversationMessage[] = [];
     if (summaryContent) {
@@ -174,23 +176,24 @@ export class ConversationService {
     return CONTEXT_TOKEN_LIMIT;
   }
 
-  computeContextTokenUsage(
+  async computeContextTokenUsage(
     conversation: Conversation & { messages: Message[] },
-  ): { contextTokensUsed: number; contextTokenLimit: number } {
-    const systemTokens = this.estimateTokenCount(conversation.systemPrompt);
+  ): Promise<{ contextTokensUsed: number; contextTokenLimit: number }> {
+    const systemTokens = await this.estimateTokenCount(conversation.systemPrompt);
     const summaryContent = conversation.summary
       ? `Resumen de la conversación anterior:\n${conversation.summary}`
       : null;
     const summaryTokens = summaryContent
-      ? this.estimateTokenCount(summaryContent)
+      ? await this.estimateTokenCount(summaryContent)
       : 0;
     const budget = CONTEXT_TOKEN_LIMIT - systemTokens - summaryTokens;
     let used = 0;
     if (budget > 0) {
       for (let i = conversation.messages.length - 1; i >= 0; i--) {
         const msg = conversation.messages[i];
-        if (used + msg.tokenCount > budget) break;
-        used += msg.tokenCount;
+        const tokens = msg.tokenCount ?? 0;
+        if (used + tokens > budget) break;
+        used += tokens;
       }
     }
     const contextTokensUsed = systemTokens + summaryTokens + used;
@@ -205,7 +208,7 @@ export class ConversationService {
     role: 'user' | 'assistant',
     content: string,
   ): Promise<Message> {
-    const tokenCount = this.estimateTokenCount(content);
+    const tokenCount = await this.estimateTokenCount(content);
 
     const message = await this.prisma.message.create({
       data: {
@@ -221,13 +224,8 @@ export class ConversationService {
     return message;
   }
 
-  private estimateTokenCount(text: string): number {
-    // Word-based heuristic: more accurate for Spanish text than length/4.
-    // NOTE: This is still an approximation. For production-grade accuracy,
-    // consider using a proper tokenizer like tiktoken (currently avoided
-    // to keep dependencies minimal).
-    const wordCount = text.trim().split(/\s+/).length;
-    return Math.ceil(wordCount * 1.3);
+  private async estimateTokenCount(text: string): Promise<number> {
+    return countTokens(text);
   }
 
   private async checkAndUpdateSummary(conversationId: string): Promise<void> {
@@ -467,7 +465,7 @@ export class ConversationService {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
 
-    const tokenCount = this.estimateTokenCount(content);
+    const tokenCount = await this.estimateTokenCount(content);
 
     const [message] = await this.prisma.$transaction([
       this.prisma.message.create({

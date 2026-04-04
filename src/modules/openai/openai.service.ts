@@ -822,10 +822,83 @@ REGLAS ESTRICTAS:
     previousMessages: ChatMessage[],
     doctorId: string,
   ): Promise<string> {
+    const TOOL_CALL_MAX_ROUNDS = 3;
+
+    // Execute initial tool calls
+    const toolResults = await this.executeToolCalls(
+      assistantMessage.tool_calls || [],
+      doctorId,
+    );
+
+    // Build messages for follow-up
+    let currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+      [
+        ...previousMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        {
+          role: 'assistant' as const,
+          content: assistantMessage.content,
+          tool_calls: assistantMessage.tool_calls,
+        },
+        ...toolResults,
+      ];
+
+    // Loop for multi-round tool calling (max 3 rounds)
+    for (let round = 0; round < TOOL_CALL_MAX_ROUNDS; round++) {
+      const followUpResponse = await this.openai.chat.completions.create({
+        model: environment.OPENAI_MODEL,
+        messages: currentMessages,
+        tools: openaiTools,
+        tool_choice: 'auto',
+      });
+
+      const followUpMessage = followUpResponse.choices[0]?.message;
+
+      // If no more tool_calls, return the content directly
+      if (!followUpMessage?.tool_calls || followUpMessage.tool_calls.length === 0) {
+        return (
+          followUpMessage?.content || 'Operación completada.'
+        );
+      }
+
+      // Execute new tool calls and append results
+      const newToolResults = await this.executeToolCalls(
+        followUpMessage.tool_calls,
+        doctorId,
+      );
+
+      // Append assistant message with tool_calls and tool results
+      currentMessages = [
+        ...currentMessages,
+        {
+          role: 'assistant' as const,
+          content: followUpMessage.content,
+          tool_calls: followUpMessage.tool_calls,
+        },
+        ...newToolResults,
+      ];
+    }
+
+    // Max rounds reached — find last message with non-null content
+    for (let i = currentMessages.length - 1; i >= 0; i--) {
+      const msg = currentMessages[i];
+      if ('content' in msg && typeof msg.content === 'string' && msg.content) {
+        return msg.content;
+      }
+    }
+    return 'Operación completada.';
+  }
+
+  private async executeToolCalls(
+    toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
+    doctorId: string,
+  ): Promise<Array<OpenAI.Chat.Completions.ChatCompletionToolMessageParam>> {
     const toolResults: Array<OpenAI.Chat.Completions.ChatCompletionToolMessageParam> =
       [];
 
-    for (const toolCall of assistantMessage.tool_calls || []) {
+    for (const toolCall of toolCalls) {
       if (toolCall.type !== 'function') continue;
 
       const functionName = toolCall.function.name;
@@ -870,28 +943,7 @@ REGLAS ESTRICTAS:
       });
     }
 
-    const followUpMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
-      [
-        ...previousMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        {
-          role: 'assistant' as const,
-          content: assistantMessage.content,
-          tool_calls: assistantMessage.tool_calls,
-        },
-        ...toolResults,
-      ];
-
-    const followUpResponse = await this.openai.chat.completions.create({
-      model: environment.OPENAI_MODEL,
-      messages: followUpMessages,
-    });
-
-    return (
-      followUpResponse.choices[0]?.message?.content || 'Operación completada.'
-    );
+    return toolResults;
   }
 
   private sanitizeToolArgs(
