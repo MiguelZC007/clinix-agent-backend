@@ -648,7 +648,6 @@ function isUUID(s: string | null | undefined): boolean {
 }
 
 export interface DoctorContext {
-  authToken: string;
   doctorId: string;
 }
 
