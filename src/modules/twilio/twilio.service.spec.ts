@@ -159,6 +159,64 @@ Tercera parte final.`;
     });
   });
 
+  describe('isWithin24h', () => {
+    const channelNumber = 'whatsapp:+14155238886';
+    const userPhone = 'whatsapp:+584241234567';
+
+    it('debe retornar true cuando lastInboundAt es hace 12 horas (dentro de ventana)', async () => {
+      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+      mockPrisma.whatsAppContactWindow.findUnique.mockResolvedValueOnce({
+        channelNumber,
+        userPhone,
+        lastInboundAt: twelveHoursAgo,
+        lastOutboundAt: twelveHoursAgo,
+        createdAt: twelveHoursAgo,
+      });
+
+      const result = await service.isWithin24h(channelNumber, userPhone);
+
+      expect(result).toBe(true);
+    });
+
+    it('debe retornar false cuando lastInboundAt es hace exactamente 24 horas (límite)', async () => {
+      const exactly24HoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      mockPrisma.whatsAppContactWindow.findUnique.mockResolvedValueOnce({
+        channelNumber,
+        userPhone,
+        lastInboundAt: exactly24HoursAgo,
+        lastOutboundAt: exactly24HoursAgo,
+        createdAt: exactly24HoursAgo,
+      });
+
+      const result = await service.isWithin24h(channelNumber, userPhone);
+
+      expect(result).toBe(false);
+    });
+
+    it('debe retornar false cuando lastInboundAt es hace 25 horas (fuera de ventana)', async () => {
+      const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      mockPrisma.whatsAppContactWindow.findUnique.mockResolvedValueOnce({
+        channelNumber,
+        userPhone,
+        lastInboundAt: twentyFiveHoursAgo,
+        lastOutboundAt: twentyFiveHoursAgo,
+        createdAt: twentyFiveHoursAgo,
+      });
+
+      const result = await service.isWithin24h(channelNumber, userPhone);
+
+      expect(result).toBe(false);
+    });
+
+    it('debe retornar false cuando no existe fila de WhatsAppContactWindow (contacto nuevo)', async () => {
+      mockPrisma.whatsAppContactWindow.findUnique.mockResolvedValueOnce(null);
+
+      const result = await service.isWithin24h(channelNumber, userPhone);
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe('processIncomingMessage', () => {
     it('debe procesar mensaje y enviar respuesta', async () => {
       const webhookData = {
