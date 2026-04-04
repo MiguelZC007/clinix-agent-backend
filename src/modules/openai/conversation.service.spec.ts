@@ -219,11 +219,12 @@ describe('ConversationService', () => {
         ...mockConversation,
         lastActivityAt: new Date(),
         messages: [
-          { id: '1', role: 'user', content: 'Hola', createdAt: new Date() },
+          { id: '1', role: 'user', content: 'Hola', tokenCount: 100, createdAt: new Date() },
           {
             id: '2',
             role: 'assistant',
             content: 'Hola, ¿en qué puedo ayudarte?',
+            tokenCount: 100,
             createdAt: new Date(),
           },
         ],
@@ -291,6 +292,7 @@ describe('ConversationService', () => {
             id: '1',
             role: 'user',
             content: 'Mensaje reciente',
+            tokenCount: 100,
             createdAt: new Date(),
           },
         ],
@@ -357,12 +359,12 @@ describe('ConversationService', () => {
     });
 
     it('debe estimar tokens correctamente', async () => {
-      // Service uses word-count heuristic: Math.ceil(wordCount * 1.3)
-      // A 5-word message: Math.ceil(5 * 1.3) = 7
+      // Service uses tiktoken with cl100k_base encoding (GPT-4 tokenizer)
+      // A 5-word Spanish message: tiktoken returns 5 tokens
       const fiveWordMessage = 'uno dos tres cuatro cinco';
       mockPrisma.message.create.mockResolvedValue({
         id: 'message-uuid',
-        tokenCount: 7,
+        tokenCount: 5,
       });
       mockPrisma.conversation.findUnique.mockResolvedValue({
         ...mockConversation,
@@ -377,7 +379,7 @@ describe('ConversationService', () => {
       const createArg = createCalls[0]?.[0] as
         | { data?: { tokenCount?: unknown } }
         | undefined;
-      expect(createArg?.data?.tokenCount).toBe(7);
+      expect(createArg?.data?.tokenCount).toBe(5);
     });
   });
 
