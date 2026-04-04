@@ -68,25 +68,6 @@ const patientTools: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_all_patients',
-      description:
-        'Busca pacientes del doctor por nombre o apellido. Recibe un texto (query) y devuelve las coincidencias. Sin query o query vacío devuelve lista vacía. NUNCA muestres UUIDs al médico; usa el id solo para llamadas internas (create_appointment, get_patient, etc.).',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description:
-              'Texto para buscar por nombre o apellido del paciente. Si no se envía o está vacío, se devuelve lista vacía.',
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'get_patient',
       description: 'Retrieve a specific patient by their ID',
       parameters: {
@@ -267,7 +248,7 @@ const appointmentTools: ChatCompletionTool[] = [
           patientId: {
             type: 'string',
             description:
-              'The "id" (UUID) or "patientNumber" (numeric string, e.g. "1") from search_patients/get_all_patients. Use the id of the row the doctor selected; if you send patientNumber it will be resolved to the patient UUID.',
+              'The "id" (UUID) or "patientNumber" (numeric string, e.g. "1") from search_patients. Use the id of the row the doctor selected; if you send patientNumber it will be resolved to the patient UUID.',
           },
           specialtyId: {
             type: 'string',
@@ -433,7 +414,7 @@ const clinicHistoryTools: ChatCompletionTool[] = [
           patientNumber: {
             type: 'integer',
             description:
-              'Patient number to ask the doctor for (from the numbered list in search_patients/get_all_patients). When creating without appointment, ask the doctor for this number; do not ask for UUID. Must send together with specialtyCode.',
+              'Patient number to ask the doctor for (from the numbered list in search_patients). When creating without appointment, ask the doctor for this number; do not ask for UUID. Must send together with specialtyCode.',
           },
           specialtyCode: {
             type: 'integer',
@@ -684,8 +665,8 @@ REGLAS ESTRICTAS:
 9. Para especialidad o paciente, usa primero list_specialties o search_patients. Presenta al médico solo nombres (ej. "Especialidades: 1. Cardiología, 2. Pediatría" o "Pacientes: Juan Pérez, María González").
 10. Cuando el médico elija por nombre o por número de opción, usa el id del resultado del tool en las llamadas que lo requieran (create_appointment con specialtyId y patientId, get_patient con patientId, etc.).
 11. Para crear una cita, si no conoces la especialidad o el paciente, llama a list_specialties y/o search_patients, presenta las opciones por nombre, y cuando el médico elija usa los ids correspondientes en create_appointment.
-12. create_appointment: patientId debe ser el "id" (UUID) de la fila elegida en search_patients/get_all_patients, o el "patientNumber" (ej. "1") de esa fila; specialtyId el "id" de list_specialties. Cada paciente tiene id y patientNumber (número único); presenta opciones como "1. Pedro González", "2. María López" y usa el id (o patientNumber) de la fila que el médico elija. NUNCA pases solo el nombre; usa el id o patientNumber del resultado del tool.
-13. create_clinic_history sin cita: NUNCA pidas ni menciones UUID al médico. Pide el número del paciente (patientNumber) y el código de la especialidad (specialtyCode). Llama a list_specialties y a search_patients o get_all_patients y muestra listas numeradas (ej. "Pacientes: 1. Juan Pérez, 2. María López" y "Especialidades: 1. Cardiología, 2. Pediatría"); el médico indica el número y tú usas ese número en create_clinic_history (patientNumber y specialtyCode).
+12. create_appointment: patientId debe ser el "id" (UUID) de la fila elegida en search_patients, o el "patientNumber" (ej. "1") de esa fila; specialtyId el "id" de list_specialties. Cada paciente tiene id y patientNumber (número único); presenta opciones como "1. Pedro González", "2. María López" y usa el id (o patientNumber) de la fila que el médico elija. NUNCA pases solo el nombre; usa el id o patientNumber del resultado del tool.
+13. create_clinic_history sin cita: NUNCA pidas ni menciones UUID al médico. Pide el número del paciente (patientNumber) y el código de la especialidad (specialtyCode). Llama a list_specialties y a search_patients y muestra listas numeradas (ej. "Pacientes: 1. Juan Pérez, 2. María López" y "Especialidades: 1. Cardiología, 2. Pediatría"); el médico indica el número y tú usas ese número en create_clinic_history (patientNumber y specialtyCode).
 14. Al recoger datos para cualquier acción (en especial para crear historia clínica sin cita), solicita UN SOLO dato por mensaje: primero el número del paciente, espera la respuesta, luego el código de la especialidad, luego motivo de consulta, luego síntomas, etc. No agrupes varias preguntas en un solo mensaje; espera la respuesta antes de pedir el siguiente dato.`;
 
   private readonly openai: OpenAI;
@@ -1025,7 +1006,7 @@ REGLAS ESTRICTAS:
       'appointment-cannot-cancel-completed':
         'No se puede cancelar una cita ya completada.',
       'appointment-use-id-not-name':
-        'Use el id (UUID) del resultado de search_patients/get_all_patients y list_specialties, no el nombre. Llame a esas funciones y pase el campo "id" en create_appointment.',
+        'Use el id (UUID) del resultado de search_patients y list_specialties, no el nombre. Llame a esas funciones y pase el campo "id" en create_appointment.',
       'appointment-patient-ambiguous':
         'Varios pacientes coinciden con ese nombre. Use search_patients y pase el id del paciente elegido.',
       'appointment-specialty-ambiguous':
@@ -1495,44 +1476,6 @@ REGLAS ESTRICTAS:
                 },
               ],
             }),
-          },
-          orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
-          include: {
-            user: { select: { name: true, lastName: true } },
-          },
-        });
-        return patients.map((p) => ({
-          id: p.id,
-          patientNumber: p.patientNumber,
-          name: p.user.name,
-          lastName: p.user.lastName,
-        }));
-      }
-
-      case 'get_all_patients': {
-        const query = args.query as string | undefined;
-        const searchTerm =
-          typeof query === 'string' && query.trim() !== ''
-            ? query.trim()
-            : null;
-        if (!searchTerm) {
-          return [];
-        }
-        const patients = await this.prisma.patient.findMany({
-          where: {
-            registeredByDoctorId: doctorId,
-            OR: [
-              {
-                user: {
-                  name: { contains: searchTerm, mode: 'insensitive' },
-                },
-              },
-              {
-                user: {
-                  lastName: { contains: searchTerm, mode: 'insensitive' },
-                },
-              },
-            ],
           },
           take: 50,
           orderBy: [{ patientNumber: 'asc' }, { user: { lastName: 'asc' } }],
