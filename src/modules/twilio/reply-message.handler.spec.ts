@@ -13,7 +13,9 @@ describe('ReplyMessageHandler', () => {
   let mockTwilioService: {
     updateLastInbound: jest.Mock;
     sendReply: jest.Mock;
+    sendProactiveTemplate: jest.Mock;
     splitMessage: jest.Mock;
+    isWithin24h: jest.Mock;
   };
   let mockPrismaService: {
     doctor: {
@@ -51,7 +53,13 @@ describe('ReplyMessageHandler', () => {
         messageSid: 'SMout',
         status: 'queued',
       }),
+      sendProactiveTemplate: jest.fn().mockResolvedValue({
+        success: true,
+        messageSid: 'SMtemplate',
+        status: 'queued',
+      }),
       splitMessage: jest.fn((text: string) => [text]),
+      isWithin24h: jest.fn().mockResolvedValue(true),
     };
     mockPrismaService = {
       doctor: {
@@ -170,6 +178,109 @@ describe('ReplyMessageHandler', () => {
         'Tu cuenta ha sido deshabilitada. Contacta al administrador.',
       );
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('24h window behavior', () => {
+    const webhookDataDoctor = {
+      MessageSid: 'SM123',
+      From: 'whatsapp:+584241234567',
+      To: 'whatsapp:+14155238886',
+      Body: 'Hola',
+    };
+
+    const templateSid = 'TEST_TEMPLATE_SID';
+
+    beforeEach(() => {
+      mockTwilioService.isWithin24h.mockClear();
+      mockTwilioService.sendReply.mockClear();
+      mockTwilioService.sendProactiveTemplate.mockClear();
+      process.env.TWILIO_SESSION_EXPIRATION_TEMPLATE_SID = templateSid;
+    });
+
+    afterEach(() => {
+      // Clean up env var if it was set by this test
+      if (process.env.TWILIO_SESSION_EXPIRATION_TEMPLATE_SID !== undefined) {
+        delete process.env.TWILIO_SESSION_EXPIRATION_TEMPLATE_SID;
+      }
+    });
+
+    it('should use sendReply when isWithin24h returns true (within window)', async () => {
+      mockTwilioService.isWithin24h.mockResolvedValue(true);
+
+      await handler.handle(webhookDataDoctor as never);
+
+      expect(mockTwilioService.isWithin24h).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+      );
+      expect(mockTwilioService.sendReply).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+        'Respuesta del asistente',
+      );
+      expect(mockTwilioService.sendProactiveTemplate).not.toHaveBeenCalled();
+    });
+
+    it('should use sendProactiveTemplate when isWithin24h returns false (outside window)', async () => {
+      mockTwilioService.isWithin24h.mockResolvedValue(false);
+
+      await handler.handle(webhookDataDoctor as never);
+
+      expect(mockTwilioService.isWithin24h).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+      );
+      expect(mockTwilioService.sendProactiveTemplate).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+        templateSid,
+      );
+      expect(mockTwilioService.sendReply).not.toHaveBeenCalled();
+    });
+
+    it('should fallback to sendReply when sendProactiveTemplate throws', async () => {
+      mockTwilioService.isWithin24h.mockResolvedValue(false);
+      mockTwilioService.sendProactiveTemplate.mockRejectedValueOnce(
+        new Error('Template send failed'),
+      );
+
+      await handler.handle(webhookDataDoctor as never);
+
+      expect(mockTwilioService.sendProactiveTemplate).toHaveBeenCalledTimes(1);
+      expect(mockTwilioService.sendReply).toHaveBeenCalledTimes(1);
+      expect(mockTwilioService.sendReply).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+        'Respuesta del asistente',
+      );
+    });
+
+    it('should default to sendProactiveTemplate when isWithin24h throws (fail-safe)', async () => {
+      mockTwilioService.isWithin24h.mockRejectedValue(
+        new Error('24h check failed'),
+      );
+
+      await handler.handle(webhookDataDoctor as never);
+
+      expect(mockTwilioService.sendProactiveTemplate).toHaveBeenCalledWith(
+        webhookDataDoctor.To,
+        webhookDataDoctor.From,
+        templateSid,
+      );
+      expect(mockTwilioService.sendReply).not.toHaveBeenCalled();
+    });
+
+    it('should skip message send and return error when TWILIO_SESSION_EXPIRATION_TEMPLATE_SID is not configured', async () => {
+      delete process.env.TWILIO_SESSION_EXPIRATION_TEMPLATE_SID;
+      mockTwilioService.isWithin24h.mockResolvedValue(false);
+
+      const result = await handler.handle(webhookDataDoctor as never);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('TWILIO_SESSION_EXPIRATION_TEMPLATE_SID');
+      expect(mockTwilioService.sendProactiveTemplate).not.toHaveBeenCalled();
+      expect(mockTwilioService.sendReply).not.toHaveBeenCalled();
     });
   });
 });

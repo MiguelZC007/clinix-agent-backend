@@ -106,18 +106,88 @@ export class ReplyMessageHandler {
         'Ocurrió un error procesando tu mensaje. Por favor, intenta de nuevo.';
     }
 
+    // 24h window check: within window → free-text reply, outside → proactive template
+    let within24h: boolean;
+    try {
+      within24h = await this.twilioService.isWithin24h(
+        replyFromNumber,
+        phoneNumber,
+      );
+    } catch (error) {
+      this.logger.error(
+        `24h window check failed, defaulting to template: ${this.getErrorMessage(error)}`,
+      );
+      within24h = false;
+    }
+
     const messageParts = this.twilioService.splitMessage(assistantResponse);
     const sentMessageSids: (string | null)[] = [];
 
-    for (let i = 0; i < messageParts.length; i++) {
-      const result = await this.twilioService.sendReply(
-        replyFromNumber,
-        phoneNumber,
-        messageParts[i],
+    // Validate env var once when outside 24h window (Issue #1)
+    const templateSid =
+      process.env.TWILIO_SESSION_EXPIRATION_TEMPLATE_SID?.trim();
+    const useProactiveTemplate = !within24h;
+
+    if (useProactiveTemplate && !templateSid) {
+      this.logger.error(
+        `TWILIO_SESSION_EXPIRATION_TEMPLATE_SID is not configured. Cannot send proactive template for ${phoneNumber}. Skipping message send.`,
       );
+      // Don't fallback — skip entirely when env var is missing
+      return {
+        success: false,
+        message:
+          'TWILIO_SESSION_EXPIRATION_TEMPLATE_SID no está configurado. Mensaje no enviado.',
+        data: {
+          messageSid: webhookData.MessageSid,
+          from: webhookData.From,
+        },
+      };
+    }
+
+    for (let i = 0; i < messageParts.length; i++) {
+      let result: { messageSid: string | null };
+      let via: string;
+
+      if (within24h) {
+        try {
+          result = await this.twilioService.sendReply(
+            replyFromNumber,
+            phoneNumber,
+            messageParts[i],
+          );
+          via = 'sendReply';
+        } catch (error) {
+          this.logger.error(
+            `sendReply failed for part ${i + 1}: ${this.getErrorMessage(error)}`,
+          );
+          result = { messageSid: null };
+          via = 'sendReply';
+        }
+      } else {
+        // Use pre-validated templateSid (Issue #1)
+        try {
+          result = await this.twilioService.sendProactiveTemplate(
+            replyFromNumber,
+            phoneNumber,
+            templateSid!,
+          );
+          via = 'sendProactiveTemplate';
+        } catch (error) {
+          this.logger.error(
+            `Template send failed, falling back to sendReply: ${this.getErrorMessage(error)}`,
+          );
+          result = await this.twilioService.sendReply(
+            replyFromNumber,
+            phoneNumber,
+            messageParts[i],
+          );
+          via = 'sendReply'; // Issue #3: correct via after fallback
+        }
+      }
+
       sentMessageSids.push(result.messageSid ?? null);
       this.logger.log(
-        `Parte enviada: índice=${i + 1}/${messageParts.length}, messageSid=${result.messageSid ?? 'n/a'}`,
+        `Parte enviada: índice=${i + 1}/${messageParts.length}, messageSid=${result.messageSid ?? 'n/a'}, via=${via}`,
       );
 
       if (i < messageParts.length - 1) {
@@ -143,14 +213,6 @@ export class ReplyMessageHandler {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private getErrorStatus(error: unknown): number | undefined {
-    if (error && typeof error === 'object' && 'status' in error) {
-      const status = (error as { status?: unknown }).status;
-      return typeof status === 'number' ? status : undefined;
-    }
-    return undefined;
   }
 
   private getErrorMessage(error: unknown): string {
