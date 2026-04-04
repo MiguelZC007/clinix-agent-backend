@@ -245,7 +245,43 @@ function generateAntecedents() {
 async function main() {
   console.log('🌱 Iniciando seed de base de datos...');
 
+  // ===========================================
+  // TEST CREDENTIALS FOR E2E TESTING
+  // See: clinix-frontend/e2e/TEST_CREDENTIALS.md
+  // ===========================================
+  
+  const TEST_CREDENTIALS = {
+    admin: {
+      email: 'admin@clinix.com',
+      phone: '+59170000001',
+      password: 'Admin123!',
+      role: 'ADMIN' as const,
+    },
+    doctor: {
+      email: 'doctor.test@clinix.com',
+      phone: '+59170000002',
+      password: 'Doctor123!',
+      role: 'DOCTOR' as const,
+    },
+    patient: {
+      email: 'patient.test@clinix.com',
+      phone: '+59170000003',
+      password: 'Patient123!',
+      role: 'PATIENT' as const,
+    },
+    e2e: {
+      email: 'test-e2e@clinix.local',
+      phone: '+59170000000',
+      password: 'Test123!',
+      role: 'DOCTOR' as const,
+    },
+  };
+
   const hashedPassword = await bcrypt.hash('password123', 10);
+  const testPasswordHash = await bcrypt.hash(TEST_CREDENTIALS.e2e.password, 10);
+  const adminPasswordHash = await bcrypt.hash(TEST_CREDENTIALS.admin.password, 10);
+  const doctorPasswordHash = await bcrypt.hash(TEST_CREDENTIALS.doctor.password, 10);
+  const patientPasswordHash = await bcrypt.hash(TEST_CREDENTIALS.patient.password, 10);
 
   console.log('📋 Creando especialidades...');
   const createdSpecialties = await Promise.all(
@@ -257,54 +293,172 @@ async function main() {
   );
   console.log(`✅ ${createdSpecialties.length} especialidades creadas`);
 
-  const e2eDoctorPhone = process.env.TEST_PHONE ?? '+59100000000';
-  const testPassword = process.env.TEST_PASSWORD ?? 'password123';
-  const testPasswordHash = await bcrypt.hash(testPassword, 10);
-  const testUserEmail = 'test-e2e@clinix.local';
-
+  // ===========================================
+  // E2E TEST USER (for Playwright tests)
+  // ===========================================
   console.log('🔐 Creando usuario de prueba E2E...');
-  const testUser = await prisma.user.upsert({
-    where: { email: testUserEmail },
+  const e2eUser = await prisma.user.upsert({
+    where: { email: TEST_CREDENTIALS.e2e.email },
     create: {
-      email: testUserEmail,
-      name: 'Usuario',
-      lastName: 'Prueba E2E',
-      phone: e2eDoctorPhone,
+      email: TEST_CREDENTIALS.e2e.email,
+      name: 'E2E',
+      lastName: 'Test Doctor',
+      phone: TEST_CREDENTIALS.e2e.phone,
       password: testPasswordHash,
-      role: 'DOCTOR',
+      role: TEST_CREDENTIALS.e2e.role,
     },
     update: {
-      phone: e2eDoctorPhone,
+      phone: TEST_CREDENTIALS.e2e.phone,
       password: testPasswordHash,
     },
   });
 
-  const existingTestDoctor = await prisma.doctor.findFirst({
-    where: { userId: testUser.id },
+  const existingE2EDoctor = await prisma.doctor.findFirst({
+    where: { userId: e2eUser.id },
   });
-  if (!existingTestDoctor) {
+  if (!existingE2EDoctor) {
     await prisma.doctor.create({
       data: {
-        userId: testUser.id,
+        userId: e2eUser.id,
         specialtyId: createdSpecialties[0].id,
         licenseNumber: 'LIC-E2E-TEST',
       },
     });
   }
-  console.log('✅ Usuario de prueba E2E listo');
+  console.log(`✅ Usuario E2E creado: ${TEST_CREDENTIALS.e2e.email}`);
 
-  console.log('👤 Creando usuario administrador...');
-  const adminUser = await prisma.user.create({
-    data: {
-      email: 'admin@clinix.com',
+  // ===========================================
+  // ADMIN TEST USER (for admin tests)
+  // ===========================================
+  console.log('🔐 Creando usuario administrador de prueba...');
+  const adminUser = await prisma.user.upsert({
+    where: { email: TEST_CREDENTIALS.admin.email },
+    create: {
+      email: TEST_CREDENTIALS.admin.email,
       name: 'Admin',
-      lastName: 'Sistema',
-      phone: '+59899000000',
-      password: await bcrypt.hash('admin123', 10),
-      role: 'ADMIN',
+      lastName: 'Test',
+      phone: TEST_CREDENTIALS.admin.phone,
+      password: adminPasswordHash,
+      role: TEST_CREDENTIALS.admin.role,
+    },
+    update: {
+      phone: TEST_CREDENTIALS.admin.phone,
+      password: adminPasswordHash,
     },
   });
-  console.log(`✅ Usuario administrador creado: ${adminUser.email}`);
+  console.log(`✅ Usuario administrador creado: ${TEST_CREDENTIALS.admin.email}`);
+
+  // ===========================================
+  // DOCTOR TEST USER (for doctor tests)
+  // ===========================================
+  console.log('👨‍⚕️ Creando usuario doctor de prueba...');
+  const doctorTestUser = await prisma.user.upsert({
+    where: { email: TEST_CREDENTIALS.doctor.email },
+    create: {
+      email: TEST_CREDENTIALS.doctor.email,
+      name: 'Doctor',
+      lastName: 'Test',
+      phone: TEST_CREDENTIALS.doctor.phone,
+      password: doctorPasswordHash,
+      role: TEST_CREDENTIALS.doctor.role,
+    },
+    update: {
+      phone: TEST_CREDENTIALS.doctor.phone,
+      password: doctorPasswordHash,
+    },
+  });
+
+  const existingDoctorTestDoctor = await prisma.doctor.findFirst({
+    where: { userId: doctorTestUser.id },
+  });
+  if (!existingDoctorTestDoctor) {
+    await prisma.doctor.create({
+      data: {
+        userId: doctorTestUser.id,
+        specialtyId: createdSpecialties[1].id,
+        licenseNumber: 'LIC-DOCTOR-TEST',
+      },
+    });
+  }
+  console.log(`✅ Usuario doctor creado: ${TEST_CREDENTIALS.doctor.email}`);
+
+  // ===========================================
+  // E2E TEST USER (for e2e tests)
+  // ===========================================
+  console.log('🧪 Creando usuario E2E de prueba...');
+  const e2eTestUser = await prisma.user.upsert({
+    where: { email: TEST_CREDENTIALS.e2e.email },
+    create: {
+      email: TEST_CREDENTIALS.e2e.email,
+      name: 'E2E',
+      lastName: 'Test',
+      phone: TEST_CREDENTIALS.e2e.phone,
+      password: doctorPasswordHash,
+      role: TEST_CREDENTIALS.e2e.role,
+    },
+    update: {
+      phone: TEST_CREDENTIALS.e2e.phone,
+      password: doctorPasswordHash,
+    },
+  });
+
+  let e2eTestDoctor = await prisma.doctor.findFirst({
+    where: { userId: e2eTestUser.id },
+  });
+  if (!e2eTestDoctor) {
+    e2eTestDoctor = await prisma.doctor.create({
+      data: {
+        userId: e2eTestUser.id,
+        specialtyId: createdSpecialties[2].id,
+        licenseNumber: 'LIC-E2E-TEST',
+      },
+    });
+  }
+  console.log(`✅ Usuario E2E creado: ${TEST_CREDENTIALS.e2e.email}`);
+
+  // ===========================================
+  // PATIENT TEST USER (for patient tests)
+  // ===========================================
+  console.log('👤 Creando usuario paciente de prueba...');
+  const patientTestUser = await prisma.user.upsert({
+    where: { email: TEST_CREDENTIALS.patient.email },
+    create: {
+      email: TEST_CREDENTIALS.patient.email,
+      name: 'Patient',
+      lastName: 'Test',
+      phone: TEST_CREDENTIALS.patient.phone,
+      password: patientPasswordHash,
+      role: TEST_CREDENTIALS.patient.role,
+    },
+    update: {
+      phone: TEST_CREDENTIALS.patient.phone,
+      password: patientPasswordHash,
+    },
+  });
+  console.log(`✅ Usuario paciente creado: ${TEST_CREDENTIALS.patient.email}`);
+
+  // ===========================================
+  // PRINT TEST CREDENTIALS
+  // ===========================================
+  console.log('\n📋 CREDENCIALES DE PRUEBA (ver clinix-frontend/e2e/TEST_CREDENTIALS.md):');
+  console.log('   ─────────────────────────────────────');
+  console.log(`   👤 ADMIN:`);
+  console.log(`      Email: ${TEST_CREDENTIALS.admin.email}`);
+  console.log(`      Phone: ${TEST_CREDENTIALS.admin.phone}`);
+  console.log(`      Password: ${TEST_CREDENTIALS.admin.password}`);
+  console.log(`   👨‍⚕️ DOCTOR:`);
+  console.log(`      Email: ${TEST_CREDENTIALS.doctor.email}`);
+  console.log(`      Phone: ${TEST_CREDENTIALS.doctor.phone}`);
+  console.log(`      Password: ${TEST_CREDENTIALS.doctor.password}`);
+  console.log(`   👤 PATIENT:`);
+  console.log(`      Email: ${TEST_CREDENTIALS.patient.email}`);
+  console.log(`      Phone: ${TEST_CREDENTIALS.patient.phone}`);
+  console.log(`      Password: ${TEST_CREDENTIALS.patient.password}`);
+  console.log(`   🧪 E2E TEST:`);
+  console.log(`      Email: ${TEST_CREDENTIALS.e2e.email}`);
+  console.log(`      Phone: ${TEST_CREDENTIALS.e2e.phone}`);
+  console.log(`      Password: ${TEST_CREDENTIALS.e2e.password}`);
+  console.log('   ─────────────────────────────────────\n');
 
   console.log('👨‍⚕️ Creando doctores...');
   const doctors: Array<{
@@ -315,6 +469,19 @@ async function main() {
     createdAt: Date;
     updatedAt: Date;
   }> = [];
+  
+  // Add test doctors first so they also get patients assigned
+  const doctorTestDoctor = await prisma.doctor.findFirst({
+    where: { user: { email: TEST_CREDENTIALS.doctor.email } },
+  });
+  if (doctorTestDoctor) {
+    doctors.push(doctorTestDoctor);
+  }
+  
+  if (e2eTestDoctor) {
+    doctors.push(e2eTestDoctor);
+  }
+  
   for (let i = 0; i < 10; i++) {
     const firstName = doctorFirstNames[i];
     const lastName = doctorLastNames[i];
