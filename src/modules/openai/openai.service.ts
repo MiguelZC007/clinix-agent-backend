@@ -822,7 +822,7 @@ REGLAS ESTRICTAS:
     previousMessages: ChatMessage[],
     doctorId: string,
   ): Promise<string> {
-    const TOOL_CALL_MAX_ROUNDS = 3;
+    const TOOL_CALL_MAX_ROUNDS = 5;
 
     // Execute initial tool calls
     const toolResults = await this.executeToolCalls(
