@@ -217,9 +217,9 @@ describe('OpenaiService - Multi-round Tool Calling', () => {
     });
   });
 
-  describe('Three rounds maximum', () => {
-    it('debe ejecutar tres rondas de tool_calls y rechazar la cuarta', async () => {
-      // Create a chain of 3 tool_calls
+  describe('Five rounds maximum', () => {
+    it('debe ejecutar múltiples rondas de tool_calls hasta contenido final', async () => {
+      // Create a chain of 3 tool_calls (within the 5-round limit)
       // Round 1
       mockChatCompletionsCreate.mockResolvedValueOnce({
         choices: [
