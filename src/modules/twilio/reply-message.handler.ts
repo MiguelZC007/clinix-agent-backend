@@ -2,7 +2,6 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { WebhookMessageDto } from './dto/webhook-message.dto';
 import { OpenaiService } from '../openai/openai.service';
 import { ConversationService } from '../openai/conversation.service';
-import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import type { ProcessIncomingMessageResult } from './twilio.service';
@@ -21,7 +20,6 @@ export class ReplyMessageHandler {
   constructor(
     private readonly openaiService: OpenaiService,
     private readonly conversationService: ConversationService,
-    private readonly authSessionService: AuthSessionService,
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => TwilioService))
     private readonly twilioService: TwilioService,
@@ -84,17 +82,11 @@ export class ReplyMessageHandler {
 
     let assistantResponse: string;
 
-    const session = await this.authSessionService.getOrCreateSession(
-      phoneNumber,
-      doctorInfo.doctorId,
-    );
-
     try {
       assistantResponse = await this.openaiService.processMessageFromDoctor(
         phoneNumber,
         userMessage,
         {
-          authToken: session.authToken,
           doctorId: doctorInfo.doctorId,
         },
       );

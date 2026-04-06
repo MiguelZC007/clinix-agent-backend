@@ -2,19 +2,22 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Put,
-  NotFoundException,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Conversation, Message } from '@prisma/client';
 import { User } from 'src/core/decorators/user.decorator';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import { getDoctorId } from 'src/common/utils/get-doctor-id.util';
-import { ConversationService } from './conversation.service';
+import {
+  ConversationService,
+  ContextBudgetSnapshot,
+} from './conversation.service';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
@@ -39,12 +42,14 @@ export class ConversationsController {
     const doctorId = getDoctorId(user);
     const conversations =
       await this.conversationService.listConversationsByDoctorId(doctorId);
-    const contextTokenLimit = this.conversationService.getContextTokenLimit();
-    return conversations.map((c) =>
-      this.toConversationDto(c, {
-        contextTokensUsed: 0,
-        contextTokenLimit,
-      }),
+
+    return Promise.all(
+      conversations.map(async (conversation) =>
+        this.toConversationDto(
+          conversation,
+          await this.conversationService.computeContextTokenUsage(conversation),
+        ),
+      ),
     );
   }
 
@@ -57,16 +62,18 @@ export class ConversationsController {
   })
   async create(@User() user: unknown): Promise<ConversationResponseDto> {
     const doctorId = getDoctorId(user);
-    const systemPrompt = this.openaiService.getSystemPrompt();
     const conversation = await this.conversationService.startNewConversation(
       doctorId,
-      systemPrompt,
+      this.openaiService.getSystemPrompt(),
     );
-    const contextTokenLimit = this.conversationService.getContextTokenLimit();
-    return this.toConversationDto(conversation, {
-      contextTokensUsed: 0,
-      contextTokenLimit,
-    });
+
+    return this.toConversationDto(
+      conversation,
+      await this.conversationService.computeContextTokenUsage({
+        ...conversation,
+        messages: [],
+      }),
+    );
   }
 
   @Get(':id/messages')
@@ -87,9 +94,10 @@ export class ConversationsController {
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
+
     const messages =
       await this.conversationService.listMessagesByConversationId(id);
-    return messages.map((m) => this.toMessageDto(m));
+    return messages.map((message) => this.toMessageDto(message));
   }
 
   @Get(':id')
@@ -99,7 +107,7 @@ export class ConversationsController {
   @ApiParam({ name: 'id', description: 'ID de la conversación (UUID)' })
   @ApiResponse({
     status: 200,
-    description: 'Conversación con contextTokensUsed y contextTokenLimit',
+    description: 'Conversación con budget efectivo',
     type: ConversationResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Conversación no encontrada' })
@@ -108,23 +116,20 @@ export class ConversationsController {
     @User() user: unknown,
   ): Promise<ConversationResponseDto> {
     const doctorId = getDoctorId(user);
-    const usage = await this.conversationService.getContextTokenUsage(
-      id,
-      doctorId,
-    );
     const conversation =
       await this.conversationService.getConversationWithMessagesForDoctor(
         id,
         doctorId,
       );
+
     if (!conversation) {
       throw new NotFoundException(ErrorCode.NOT_FOUND);
     }
-    const withPreview = {
-      ...conversation,
-      messages: conversation.messages.slice(-1).reverse(),
-    };
-    return this.toConversationDto(withPreview, usage);
+
+    return this.toConversationDto(
+      { ...conversation, messages: conversation.messages.slice(-1).reverse() },
+      await this.conversationService.computeContextTokenUsage(conversation),
+    );
   }
 
   @Patch(':id')
@@ -145,13 +150,24 @@ export class ConversationsController {
     const conversation = await this.conversationService.updateConversation(
       id,
       doctorId,
-      {} as Record<string, never>,
+      dto,
     );
-    const contextTokenLimit = this.conversationService.getContextTokenLimit();
-    return this.toConversationDto(conversation, {
-      contextTokensUsed: 0,
-      contextTokenLimit,
-    });
+    const conversationWithMessages =
+      await this.conversationService.getConversationWithMessagesForDoctor(
+        id,
+        doctorId,
+      );
+
+    if (!conversationWithMessages) {
+      throw new NotFoundException(ErrorCode.NOT_FOUND);
+    }
+
+    return this.toConversationDto(
+      conversation,
+      await this.conversationService.computeContextTokenUsage(
+        conversationWithMessages,
+      ),
+    );
   }
 
   @Put(':id/read')
@@ -178,14 +194,8 @@ export class ConversationsController {
 
   private toConversationDto(
     conversation: Conversation & { messages?: Message[] },
-    tokenUsage: {
-      contextTokensUsed: number;
-      contextTokenLimit: number;
-    },
+    tokenUsage: ContextBudgetSnapshot,
   ): ConversationResponseDto {
-    const title = this.deriveTitle(conversation);
-    const lastMessagePreview =
-      conversation.messages?.[0]?.content?.trim() || undefined;
     return {
       id: conversation.id,
       model: conversation.model,
@@ -198,8 +208,10 @@ export class ConversationsController {
       updatedAt: conversation.updatedAt,
       contextTokensUsed: tokenUsage.contextTokensUsed,
       contextTokenLimit: tokenUsage.contextTokenLimit,
-      title,
-      lastMessagePreview,
+      contextTokenLimitOverride: tokenUsage.contextTokenLimitOverride,
+      title: this.deriveTitle(conversation),
+      lastMessagePreview:
+        conversation.messages?.[0]?.content?.trim() || undefined,
     };
   }
 
@@ -208,10 +220,9 @@ export class ConversationsController {
       const trimmed = conversation.summary.trim();
       return trimmed.length > 50 ? `${trimmed.slice(0, 47)}...` : trimmed;
     }
-    const d = new Date(conversation.lastActivityAt);
-    const day = d.getDate();
-    const month = d.toLocaleDateString('es', { month: 'short' });
-    return `Conversación ${day} ${month}`;
+
+    const date = new Date(conversation.lastActivityAt);
+    return `Conversación ${date.getDate()} ${date.toLocaleDateString('es', { month: 'short' })}`;
   }
 
   private toMessageDto(message: Message): MessageResponseDto {

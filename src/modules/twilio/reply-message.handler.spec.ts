@@ -1,7 +1,6 @@
 import { ReplyMessageHandler } from './reply-message.handler';
 import { OpenaiService } from '../openai/openai.service';
 import { ConversationService } from '../openai/conversation.service';
-import { AuthSessionService } from '../openai/auth-session.service';
 import { TwilioService } from './twilio.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
@@ -9,7 +8,6 @@ describe('ReplyMessageHandler', () => {
   let handler: ReplyMessageHandler;
   let mockOpenaiService: { processMessageFromDoctor: jest.Mock };
   let mockConversationService: { findDoctorByPhone: jest.Mock };
-  let mockAuthSessionService: { getOrCreateSession: jest.Mock };
   let mockTwilioService: {
     updateLastInbound: jest.Mock;
     sendReply: jest.Mock;
@@ -40,12 +38,6 @@ describe('ReplyMessageHandler', () => {
         doctorName: 'Dr. Test',
       }),
     };
-    mockAuthSessionService = {
-      getOrCreateSession: jest.fn().mockResolvedValue({
-        authToken: 'token-abc',
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-      }),
-    };
     mockTwilioService = {
       updateLastInbound: jest.fn().mockResolvedValue(undefined),
       sendReply: jest.fn().mockResolvedValue({
@@ -72,7 +64,6 @@ describe('ReplyMessageHandler', () => {
     handler = new ReplyMessageHandler(
       mockOpenaiService as unknown as OpenaiService,
       mockConversationService as unknown as ConversationService,
-      mockAuthSessionService as unknown as AuthSessionService,
       mockPrismaService as unknown as PrismaService,
       mockTwilioService as unknown as TwilioService,
     );
@@ -115,15 +106,10 @@ describe('ReplyMessageHandler', () => {
         where: { id: 'doctor-uuid' },
         include: { user: { select: { isActive: true } } },
       });
-      expect(mockAuthSessionService.getOrCreateSession).toHaveBeenCalledWith(
-        webhookData.From,
-        'doctor-uuid',
-      );
       expect(mockOpenaiService.processMessageFromDoctor).toHaveBeenCalledWith(
         webhookData.From,
         webhookData.Body,
         {
-          authToken: 'token-abc',
           doctorId: 'doctor-uuid',
         },
       );

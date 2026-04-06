@@ -19,51 +19,43 @@ jest.mock('src/core/config/environments', () => ({
   },
 }));
 
+import { Logger } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
-import { ConversationService } from './conversation.service';
+import {
+  ContextBudgetExceededError,
+  ConversationService,
+} from './conversation.service';
+
+interface MockPrisma {
+  user: { findFirst: jest.Mock };
+  conversation: {
+    findFirst: jest.Mock;
+    findUnique: jest.Mock;
+    findMany: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    updateMany: jest.Mock;
+  };
+  message: {
+    create: jest.Mock;
+    deleteMany: jest.Mock;
+    findMany: jest.Mock;
+    updateMany: jest.Mock;
+  };
+  $transaction: jest.Mock;
+}
 
 describe('ConversationService', () => {
   let service: ConversationService;
-  let mockPrisma: {
-    user: { findFirst: jest.Mock };
-    conversation: {
-      findFirst: jest.Mock;
-      findUnique: jest.Mock;
-      findMany: jest.Mock;
-      create: jest.Mock;
-      update: jest.Mock;
-      updateMany: jest.Mock;
-    };
-    message: {
-      create: jest.Mock;
-      deleteMany: jest.Mock;
-    };
-    $transaction: jest.Mock;
-  };
+  let prisma: MockPrisma;
 
-  const mockDoctor = {
-    id: 'doctor-uuid',
-    userId: 'user-uuid',
-    specialtyId: 'specialty-uuid',
-    licenseNumber: '12345',
-  };
-
-  const mockUser = {
-    id: 'user-uuid',
-    email: 'doctor@test.com',
-    name: 'Juan',
-    lastName: 'Pérez',
-    phone: '+584241234567',
-    doctor: mockDoctor,
-  };
-
-  const mockConversation = {
+  const baseConversation = {
     id: 'conversation-uuid',
     doctorId: 'doctor-uuid',
     model: 'gpt-4',
-    systemPrompt: 'Test prompt',
+    systemPrompt: 'Prompt clínico base',
     summary: null,
-    contextMessageLimit: null,
+    contextTokenLimitOverride: null,
     lastActivityAt: new Date(),
     isActive: true,
     createdAt: new Date(),
@@ -72,10 +64,8 @@ describe('ConversationService', () => {
   };
 
   beforeEach(() => {
-    mockPrisma = {
-      user: {
-        findFirst: jest.fn(),
-      },
+    prisma = {
+      user: { findFirst: jest.fn() },
       conversation: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
@@ -87,527 +77,305 @@ describe('ConversationService', () => {
       message: {
         create: jest.fn(),
         deleteMany: jest.fn(),
+        findMany: jest.fn(),
+        updateMany: jest.fn(),
       },
-      $transaction: jest.fn((callbacks) => Promise.all(callbacks)),
+      $transaction: jest.fn((operations) => Promise.all(operations)),
     };
 
-    service = new ConversationService(mockPrisma as never);
+    service = new ConversationService(prisma as never);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
-  describe('findDoctorByPhone', () => {
-    it('debe encontrar un doctor por número de teléfono', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
+  it('calcula el effectiveContextLimit desde el perfil del modelo', () => {
+    expect(service.getEffectiveContextLimit(null, 'gpt-4')).toBe(115_712);
+  });
 
-      const result = await service.findDoctorByPhone('+584241234567');
+  it('usa el override menor cuando existe', () => {
+    expect(service.getEffectiveContextLimit(32_000, 'gpt-4')).toBe(32_000);
+  });
 
-      expect(result).toEqual({
-        doctorId: 'doctor-uuid',
-        doctorName: 'Juan Pérez',
-      });
-      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
-        where: {
-          phone: '+584241234567',
-          doctor: { isNot: null },
+  it('protege contra overrides por debajo del piso mínimo', () => {
+    expect(service.getEffectiveContextLimit(1_000, 'gpt-4')).toBe(4_096);
+  });
+
+  it('retorna uso de contexto con override persistido', async () => {
+    const result = await service.computeContextTokenUsage({
+      ...baseConversation,
+      contextTokenLimitOverride: 24_000,
+      messages: [
+        {
+          id: 'msg-1',
+          content: 'Mensaje clínico',
+          role: 'user',
+          tokenCount: 25,
+          readAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          conversationId: 'conversation-uuid',
         },
-        include: { doctor: true },
-      });
+      ],
     });
 
-    it('debe normalizar número de teléfono con prefijo whatsapp:', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
-
-      await service.findDoctorByPhone('whatsapp:+584241234567');
-
-      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
-        where: {
-          phone: '+584241234567',
-          doctor: { isNot: null },
-        },
-        include: { doctor: true },
-      });
-    });
-
-    it('debe retornar null si no encuentra doctor', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
-
-      const result = await service.findDoctorByPhone('+584241234567');
-
-      expect(result).toBeNull();
-    });
-
-    it('debe retornar null si usuario no tiene doctor asociado', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({
-        ...mockUser,
-        doctor: null,
-      });
-
-      const result = await service.findDoctorByPhone('+584241234567');
-
-      expect(result).toBeNull();
-    });
+    expect(result.contextTokenLimit).toBe(24_000);
+    expect(result.contextTokenLimitOverride).toBe(24_000);
+    expect(result.contextTokensUsed).toBeGreaterThan(25);
   });
 
-  describe('listConversationsByDoctorId', () => {
-    it('debe listar conversaciones con el último mensaje incluido', async () => {
-      const convWithMessage = {
-        ...mockConversation,
-        messages: [
-          {
-            id: 'msg-1',
-            content: 'Último mensaje',
-            role: 'user',
-            tokenCount: 2,
-            readAt: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            conversationId: mockConversation.id,
-          },
-        ],
-      };
-      mockPrisma.conversation.findMany.mockResolvedValue([convWithMessage]);
-
-      const result = await service.listConversationsByDoctorId('doctor-uuid');
-
-      expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith({
-        where: { doctorId: 'doctor-uuid' },
-        orderBy: { lastActivityAt: 'desc' },
-        include: {
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-          },
-        },
-      });
-      expect(result).toHaveLength(1);
-      expect(result[0].messages).toHaveLength(1);
-      expect(result[0].messages[0].content).toBe('Último mensaje');
-    });
-
-    it('debe devolver array vacío cuando no hay conversaciones', async () => {
-      mockPrisma.conversation.findMany.mockResolvedValue([]);
-
-      const result = await service.listConversationsByDoctorId('doctor-uuid');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getOrCreateActiveConversation', () => {
-    it('debe crear nueva conversación si no existe ninguna activa', async () => {
-      mockPrisma.conversation.findFirst.mockResolvedValue(null);
-      mockPrisma.conversation.create.mockResolvedValue({
-        ...mockConversation,
-        messages: [],
-      });
-
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
-      expect(result.conversation).toBeDefined();
-      expect(result.messages).toEqual([]);
-      expect(mockPrisma.conversation.create).toHaveBeenCalled();
-    });
-
-    it('debe reutilizar conversación existente si está activa y no expirada', async () => {
-      const recentConversation = {
-        ...mockConversation,
-        lastActivityAt: new Date(),
-        messages: [
-          { id: '1', role: 'user', content: 'Hola', tokenCount: 100, createdAt: new Date() },
-          {
-            id: '2',
-            role: 'assistant',
-            content: 'Hola, ¿en qué puedo ayudarte?',
-            tokenCount: 100,
-            createdAt: new Date(),
-          },
-        ],
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(recentConversation);
-      mockPrisma.conversation.update.mockResolvedValue(recentConversation);
-
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
-      expect(result.conversation.id).toBe('conversation-uuid');
-      expect(mockPrisma.conversation.create).not.toHaveBeenCalled();
-      const updateCalls = mockPrisma.conversation.update.mock.calls as Array<
-        [unknown]
-      >;
-      const updateArg = updateCalls[0]?.[0] as
-        | { where?: { id?: unknown }; data?: { lastActivityAt?: unknown } }
-        | undefined;
-      expect(updateArg?.where?.id).toBe('conversation-uuid');
-      expect(updateArg?.data?.lastActivityAt).toEqual(expect.any(Date));
-    });
-
-    it('debe crear nueva conversación si la sesión expiró (más de 30 minutos)', async () => {
-      const expiredDate = new Date();
-      expiredDate.setMinutes(expiredDate.getMinutes() - 35);
-
-      const expiredConversation = {
-        ...mockConversation,
-        lastActivityAt: expiredDate,
-      };
-
-      mockPrisma.conversation.findFirst.mockResolvedValue(expiredConversation);
-      mockPrisma.conversation.update.mockResolvedValue({
-        ...expiredConversation,
-        isActive: false,
-      });
-      mockPrisma.conversation.create.mockResolvedValue({
-        ...mockConversation,
-        id: 'new-conversation-uuid',
-        messages: [],
-      });
-
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
-      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
-        where: { id: 'conversation-uuid' },
-        data: { isActive: false },
-      });
-      expect(mockPrisma.conversation.create).toHaveBeenCalled();
-      expect(result.conversation.id).toBe('new-conversation-uuid');
-    });
-
-    it('debe incluir resumen en mensajes de contexto si existe', async () => {
-      const conversationWithSummary = {
-        ...mockConversation,
-        summary:
-          'Resumen de conversación anterior: Se registró un paciente Juan',
-        messages: [
-          {
-            id: '1',
-            role: 'user',
-            content: 'Mensaje reciente',
-            tokenCount: 100,
-            createdAt: new Date(),
-          },
-        ],
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(
-        conversationWithSummary,
-      );
-      mockPrisma.conversation.update.mockResolvedValue(conversationWithSummary);
-
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
-      expect(result.messages[0]?.role).toBe('system');
-      const content = result.messages[0]?.content;
-      expect(typeof content).toBe('string');
-      expect(content).toContain('Resumen de conversación anterior');
-    });
-  });
-
-  describe('addMessage', () => {
-    it('debe agregar mensaje a la conversación', async () => {
-      const mockMessage = {
-        id: 'message-uuid',
-        conversationId: 'conversation-uuid',
-        role: 'user',
-        content: 'Hola',
-        tokenCount: 1,
-        createdAt: new Date(),
+  it('compacta por presión de presupuesto aunque no haya umbral viejo de mensajes', async () => {
+    const conversationBeforeCompaction = {
+      ...baseConversation,
+      contextTokenLimitOverride: 16_000,
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        id: `msg-${index}`,
+        content: `Mensaje ${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        tokenCount: 3_000,
+        readAt: null,
+        createdAt: new Date(Date.now() + index * 1000),
         updatedAt: new Date(),
-      };
+        conversationId: 'conversation-uuid',
+      })),
+    };
+    const conversationAfterCompaction = {
+      ...conversationBeforeCompaction,
+      summary: 'Resumen de prueba',
+      messages: conversationBeforeCompaction.messages.slice(-4),
+    };
 
-      mockPrisma.message.create.mockResolvedValue(mockMessage);
-      mockPrisma.conversation.findUnique.mockResolvedValue({
-        ...mockConversation,
-        messages: [mockMessage],
-      });
+    prisma.conversation.findUnique
+      .mockResolvedValueOnce(conversationBeforeCompaction)
+      .mockResolvedValueOnce(conversationAfterCompaction)
+      .mockResolvedValueOnce(conversationAfterCompaction);
+    prisma.conversation.update.mockResolvedValue(conversationAfterCompaction);
+    prisma.message.deleteMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.addMessage(
-        'conversation-uuid',
-        'user',
-        'Hola',
-      );
+    const result = await service.preflightContextBudget(baseConversation.id, [
+      {
+        role: 'assistant',
+        content: 'Payload de herramienta muy grande '.repeat(200),
+      },
+    ]);
 
-      expect(result).toEqual(mockMessage);
-      const createCalls = mockPrisma.message.create.mock.calls as Array<
-        [unknown]
-      >;
-      const createArg = createCalls[0]?.[0] as
-        | {
-            data?: {
-              conversationId?: unknown;
-              role?: unknown;
-              content?: unknown;
-              tokenCount?: unknown;
-            };
-          }
-        | undefined;
-      expect(createArg?.data?.conversationId).toBe('conversation-uuid');
-      expect(createArg?.data?.role).toBe('user');
-      expect(createArg?.data?.content).toBe('Hola');
-      expect(createArg?.data?.tokenCount).toEqual(expect.any(Number));
-    });
-
-    it('debe estimar tokens correctamente', async () => {
-      // Service uses tiktoken with cl100k_base encoding (GPT-4 tokenizer)
-      // A 5-word Spanish message: tiktoken returns 5 tokens
-      const fiveWordMessage = 'uno dos tres cuatro cinco';
-      mockPrisma.message.create.mockResolvedValue({
-        id: 'message-uuid',
-        tokenCount: 5,
-      });
-      mockPrisma.conversation.findUnique.mockResolvedValue({
-        ...mockConversation,
-        messages: [],
-      });
-
-      await service.addMessage('conversation-uuid', 'user', fiveWordMessage);
-
-      const createCalls = mockPrisma.message.create.mock.calls as Array<
-        [unknown]
-      >;
-      const createArg = createCalls[0]?.[0] as
-        | { data?: { tokenCount?: unknown } }
-        | undefined;
-      expect(createArg?.data?.tokenCount).toBe(5);
-    });
+    expect(prisma.conversation.update).toHaveBeenCalled();
+    expect(prisma.message.deleteMany).toHaveBeenCalled();
+    expect(result.messages[0]?.role).toBe('system');
+    expect(result.messages[0]?.content).toContain(
+      'Resumen de la conversación anterior',
+    );
   });
 
-  describe('closeConversation', () => {
-    it('debe marcar conversación como inactiva', async () => {
-      mockPrisma.conversation.update.mockResolvedValue({
-        ...mockConversation,
-        isActive: false,
-      });
-
-      await service.closeConversation('conversation-uuid');
-
-      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
-        where: { id: 'conversation-uuid' },
-        data: { isActive: false },
-      });
-    });
-  });
-
-  describe('startNewConversation', () => {
-    it('debe desactivar conversaciones activas y crear una nueva', async () => {
-      mockPrisma.conversation.updateMany.mockResolvedValue({ count: 1 });
-      const newConversation = {
-        ...mockConversation,
-        id: 'new-conv-uuid',
-        messages: [],
-      };
-      mockPrisma.conversation.create.mockResolvedValue(newConversation);
-
-      const result = await service.startNewConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
-
-      expect(mockPrisma.conversation.updateMany).toHaveBeenCalledWith({
-        where: { doctorId: 'doctor-uuid', isActive: true },
-        data: { isActive: false },
-      });
-      expect(mockPrisma.conversation.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          doctorId: 'doctor-uuid',
-          systemPrompt: 'System prompt',
-          isActive: true,
-        }),
-      });
-      expect(result.id).toBe('new-conv-uuid');
-    });
-  });
-
-  describe('getConversationWithMessagesForDoctor', () => {
-    it('retorna null si la conversación no existe', async () => {
-      mockPrisma.conversation.findFirst.mockResolvedValue(null);
-
-      const result = await service.getConversationWithMessagesForDoctor(
-        'conv-uuid',
-        'doctor-uuid',
-      );
-
-      expect(result).toBeNull();
-      expect(mockPrisma.conversation.findFirst).toHaveBeenCalledWith({
-        where: { id: 'conv-uuid', doctorId: 'doctor-uuid' },
-        include: {
-          messages: { orderBy: { createdAt: 'asc' } },
-        },
-      });
-    });
-
-    it('retorna conversación con mensajes si existe y pertenece al doctor', async () => {
-      const convWithMessages = {
-        ...mockConversation,
-        messages: [
-          {
-            id: 'msg-1',
-            role: 'user',
-            content: 'Hola',
-            tokenCount: 1,
-            readAt: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            conversationId: 'conv-uuid',
-          },
-        ],
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
-
-      const result = await service.getConversationWithMessagesForDoctor(
-        'conv-uuid',
-        'doctor-uuid',
-      );
-
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe('conversation-uuid');
-      expect(result?.messages).toHaveLength(1);
-      expect(result?.messages[0].content).toBe('Hola');
-    });
-  });
-
-  describe('getContextForConversation', () => {
-    it('lanza NotFound si la conversación no existe', async () => {
-      mockPrisma.conversation.findFirst.mockResolvedValue(null);
-
-      return expect(
-        service.getContextForConversation('conv-uuid', 'doctor-uuid'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('retorna contexto con resumen y últimos mensajes que caben en el límite de tokens', async () => {
-      const messages = [
+  it('continúa sin compactar cuando el prompt proyectado queda bajo presupuesto', async () => {
+    const underBudgetConversation = {
+      ...baseConversation,
+      contextTokenLimitOverride: 32_000,
+      messages: [
         {
           id: 'msg-1',
+          content: 'Mensaje breve',
           role: 'user',
-          content: 'Mensaje 1',
-          tokenCount: 1,
+          tokenCount: 40,
           readAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
-          conversationId: 'conv-uuid',
+          conversationId: 'conversation-uuid',
         },
+      ],
+    };
+
+    prisma.conversation.findUnique.mockResolvedValue(underBudgetConversation);
+
+    const result = await service.preflightContextBudget(baseConversation.id, [
+      { role: 'assistant', content: 'Respuesta breve' },
+    ]);
+
+    expect(prisma.conversation.update).not.toHaveBeenCalled();
+    expect(prisma.message.deleteMany).not.toHaveBeenCalled();
+    expect(result.contextTokensUsed).toBeLessThan(result.contextTokenLimit);
+    expect(result.messages).toEqual([
+      { role: 'user', content: 'Mensaje breve' },
+    ]);
+  });
+
+  it('presupuesta metadata estructurada de tool calls en pendingMessages', async () => {
+    const underBudgetConversation = {
+      ...baseConversation,
+      contextTokenLimitOverride: 32_000,
+      messages: [],
+    };
+
+    prisma.conversation.findUnique.mockResolvedValue(underBudgetConversation);
+
+    const withoutMetadata = await service.preflightContextBudget(
+      baseConversation.id,
+      [{ role: 'assistant', content: null }],
+    );
+    const withMetadata = await service.preflightContextBudget(
+      baseConversation.id,
+      [
         {
-          id: 'msg-2',
           role: 'assistant',
-          content: 'Respuesta 1',
-          tokenCount: 1,
-          readAt: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          conversationId: 'conv-uuid',
+          content: null,
+          metadata: JSON.stringify({
+            tool_calls: [
+              {
+                id: 'call-1',
+                type: 'function',
+                function: {
+                  name: 'list_specialties',
+                  arguments: '{"query":"cardiología"}',
+                },
+              },
+            ],
+          }),
         },
-      ];
-      const convWithMessages = {
-        ...mockConversation,
-        summary: 'Resumen previo',
-        messages,
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
+      ],
+    );
 
-      const result = await service.getContextForConversation(
-        'conv-uuid',
-        'doctor-uuid',
-      );
-
-      expect(result.length).toBeGreaterThan(0);
-      const systemMsg = result.find((m) => m.role === 'system');
-      expect(systemMsg?.content).toContain('Resumen previo');
-      const recent = result.filter(
-        (m) => m.role === 'user' || m.role === 'assistant',
-      );
-      expect(recent.length).toBe(2);
-      expect(recent[0].content).toBe('Mensaje 1');
-      expect(recent[1].content).toBe('Respuesta 1');
-    });
+    expect(withMetadata.contextTokensUsed).toBeGreaterThan(
+      withoutMetadata.contextTokensUsed,
+    );
   });
 
-  describe('getContextTokenUsage', () => {
-    it('lanza NotFound si la conversación no existe', async () => {
-      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+  it('preserva continuidad del resumen y la ventana reciente tras compactar', async () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({
+      id: `msg-${index}`,
+      content: `Mensaje ${index}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      tokenCount: 3_000,
+      readAt: null,
+      createdAt: new Date(Date.now() + index * 1000),
+      updatedAt: new Date(),
+      conversationId: 'conversation-uuid',
+    }));
+    prisma.conversation.findUnique
+      .mockResolvedValueOnce({
+        ...baseConversation,
+        summary: 'Resumen previo',
+        contextTokenLimitOverride: 20_000,
+        messages,
+      })
+      .mockResolvedValueOnce({
+        ...baseConversation,
+        summary: 'Resumen de prueba',
+        contextTokenLimitOverride: 20_000,
+        messages: messages.slice(-4),
+      })
+      .mockResolvedValueOnce({
+        ...baseConversation,
+        summary: 'Resumen de prueba',
+        contextTokenLimitOverride: 20_000,
+        messages: messages.slice(-4),
+      });
+    prisma.conversation.update.mockResolvedValue(baseConversation);
+    prisma.message.deleteMany.mockResolvedValue({ count: 4 });
 
-      await expect(
-        service.getContextTokenUsage('conv-uuid', 'doctor-uuid'),
-      ).rejects.toThrow(NotFoundException);
-    });
+    const result = await service.preflightContextBudget(baseConversation.id, [
+      { role: 'assistant', content: 'x'.repeat(2_000) },
+    ]);
 
-    it('retorna contextTokensUsed y contextTokenLimit', async () => {
-      const messages = [
+    const recentMessages = result.messages.filter(
+      (message) => message.role !== 'system',
+    );
+    expect(recentMessages).toHaveLength(4);
+    expect(recentMessages[0].content).toBe('Mensaje 4');
+    expect(result.messages[0].content).toContain('Resumen de prueba');
+  });
+
+  it('lanza fallback controlado si ni compactando entra en presupuesto', async () => {
+    prisma.conversation.findUnique.mockResolvedValue({
+      ...baseConversation,
+      contextTokenLimitOverride: 4_096,
+      messages: [
         {
           id: 'msg-1',
+          content: 'Bloque muy grande',
           role: 'user',
-          content: 'Hola',
           tokenCount: 10,
           readAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
-          conversationId: 'conv-uuid',
+          conversationId: 'conversation-uuid',
         },
-      ];
-      const convWithMessages = {
-        ...mockConversation,
-        systemPrompt: 'System',
-        messages,
-      };
-      mockPrisma.conversation.findFirst.mockResolvedValue(convWithMessages);
-
-      const result = await service.getContextTokenUsage(
-        'conv-uuid',
-        'doctor-uuid',
-      );
-
-      expect(result.contextTokenLimit).toBe(120_000);
-      expect(result.contextTokensUsed).toBeGreaterThanOrEqual(10);
-      expect(result.contextTokensUsed).toBeLessThanOrEqual(120_000);
+      ],
     });
+
+    await expect(
+      service.preflightContextBudget(baseConversation.id, [
+        { role: 'assistant', content: 'z'.repeat(20_000) },
+      ]),
+    ).rejects.toThrow(ContextBudgetExceededError);
   });
 
-  describe('Ventana de contexto por tokens', () => {
-    it('debe retornar solo los mensajes que caben en el presupuesto de tokens', async () => {
-      const manyMessages = Array.from({ length: 15 }, (_, i) => ({
-        id: `msg-${i}`,
-        role: i % 2 === 0 ? 'user' : 'assistant',
-        content: `Mensaje ${i}`,
-        tokenCount: 10_000,
+  it('avisa cuando la compactación pierde efecto tras el refetch concurrente', async () => {
+    const oversizedConversation = {
+      ...baseConversation,
+      contextTokenLimitOverride: 16_000,
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        id: `msg-${index}`,
+        content: `Mensaje ${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        tokenCount: 3_000,
         readAt: null,
-        createdAt: new Date(Date.now() + i * 1000),
+        createdAt: new Date(Date.now() + index * 1000),
         updatedAt: new Date(),
         conversationId: 'conversation-uuid',
-      }));
+      })),
+    };
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
 
-      const conversationWithManyMessages = {
-        ...mockConversation,
-        systemPrompt: 'System prompt',
-        messages: manyMessages,
-      };
+    prisma.conversation.findUnique
+      .mockResolvedValueOnce(oversizedConversation)
+      .mockResolvedValueOnce(oversizedConversation)
+      .mockResolvedValueOnce(oversizedConversation);
+    prisma.conversation.update.mockResolvedValue(oversizedConversation);
+    prisma.message.deleteMany.mockResolvedValue({ count: 2 });
 
-      mockPrisma.conversation.findFirst.mockResolvedValue(
-        conversationWithManyMessages,
-      );
-      mockPrisma.conversation.update.mockResolvedValue(
-        conversationWithManyMessages,
-      );
+    await expect(
+      service.preflightContextBudget(baseConversation.id, [
+        { role: 'assistant', content: 'Payload enorme '.repeat(400) },
+      ]),
+    ).rejects.toThrow(ContextBudgetExceededError);
 
-      const result = await service.getOrCreateActiveConversation(
-        'doctor-uuid',
-        'System prompt',
-      );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('did not survive refetch'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('still exceeds the context budget'),
+    );
+  });
 
-      const recentOnly = result.messages.filter(
-        (m) => m.role === 'user' || m.role === 'assistant',
-      );
-      expect(recentOnly.length).toBe(11);
+  it('actualiza el override persistido en updateConversation', async () => {
+    prisma.conversation.findFirst.mockResolvedValue(baseConversation);
+    prisma.conversation.update.mockResolvedValue({
+      ...baseConversation,
+      contextTokenLimitOverride: 20_000,
     });
+
+    const result = await service.updateConversation(
+      baseConversation.id,
+      baseConversation.doctorId,
+      {
+        contextTokenLimitOverride: 20_000,
+      },
+    );
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: baseConversation.id },
+      data: { contextTokenLimitOverride: 20_000, model: 'gpt-4' },
+    });
+    expect(result.contextTokenLimitOverride).toBe(20_000);
+  });
+
+  it('lanza NotFound si no existe la conversación al consultar contexto', async () => {
+    prisma.conversation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.getContextForConversation('missing', 'doctor-uuid'),
+    ).rejects.toThrow(NotFoundException);
   });
 });

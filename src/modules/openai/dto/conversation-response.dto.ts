@@ -63,6 +63,15 @@ export class ConversationResponseDto {
   contextTokenLimit: number;
 
   @ApiProperty({
+    description:
+      'Override opcional por conversación para el límite de contexto',
+    example: 32000,
+    required: false,
+    nullable: true,
+  })
+  contextTokenLimitOverride?: number | null;
+
+  @ApiProperty({
     description: 'Título sugerido para la UI (derivado de resumen o fecha)',
     example: 'Conversación 1 ene',
     required: false,
@@ -76,4 +85,3 @@ export class ConversationResponseDto {
   })
   lastMessagePreview?: string;
 }
-
