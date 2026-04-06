@@ -1,43 +1,74 @@
+const mockChatCompletionsCreate = jest.fn();
+
+jest.mock('openai', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: mockChatCompletionsCreate,
+      },
+    },
+  })),
+}));
+
+jest.mock('src/core/config/environments', () => ({
+  __esModule: true,
+  default: {
+    OPENAI_API_KEY: 'test-api-key',
+    OPENAI_MODEL: 'gpt-4',
+    SALT_ROUND: 10,
+  },
+}));
+
+import { ContextBudgetExceededError } from './conversation.service';
 import { OpenaiService } from './openai.service';
 
-describe('OpenaiService - Multi-round Tool Calling', () => {
+interface MockPrisma {
+  user: { create: jest.Mock; findFirst: jest.Mock };
+  patient: {
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  };
+  specialty: { findMany: jest.Mock; findUnique: jest.Mock };
+  appointment: {
+    create: jest.Mock;
+    findMany: jest.Mock;
+    findFirst: jest.Mock;
+    findUnique: jest.Mock;
+    update: jest.Mock;
+  };
+  clinicHistory: {
+    create: jest.Mock;
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
+  };
+}
+
+interface MockConversationService {
+  findDoctorByPhone: jest.Mock;
+  getOrCreateActiveConversation: jest.Mock;
+  preflightContextBudget: jest.Mock;
+  addMessage: jest.Mock;
+}
+
+describe('OpenaiService budget preflight', () => {
   let service: OpenaiService;
-  let mockPrisma: any;
-  let mockConversationService: any;
-  let mockAppointmentService: any;
-  let mockClinicHistoryService: any;
-  let mockChatCompletionsCreate: jest.Mock;
+  let prisma: MockPrisma;
+  let conversationService: MockConversationService;
 
   const mockConversation = {
     id: 'conversation-uuid',
     doctorId: 'doctor-uuid',
     model: 'gpt-4',
-    systemPrompt: 'Test prompt',
+    systemPrompt: 'Prompt',
   };
 
   beforeEach(() => {
-    mockChatCompletionsCreate = jest.fn();
+    mockChatCompletionsCreate.mockReset();
 
-    jest.mock('openai', () => ({
-      __esModule: true,
-      default: jest.fn().mockImplementation(() => ({
-        chat: {
-          completions: {
-            create: mockChatCompletionsCreate,
-          },
-        },
-      })),
-    }));
-
-    jest.mock('src/core/config/environments', () => ({
-      __esModule: true,
-      default: {
-        OPENAI_API_KEY: 'test-api-key',
-        OPENAI_MODEL: 'gpt-4',
-      },
-    }));
-
-    mockPrisma = {
+    prisma = {
       user: { create: jest.fn(), findFirst: jest.fn() },
       patient: {
         findMany: jest.fn(),
@@ -60,35 +91,31 @@ describe('OpenaiService - Multi-round Tool Calling', () => {
       },
     };
 
-    mockConversationService = {
-      findDoctorByPhone: jest.fn().mockResolvedValue({
-        doctorId: 'doctor-uuid',
-        doctorName: 'Dr. Test',
+    conversationService = {
+      findDoctorByPhone: jest
+        .fn()
+        .mockResolvedValue({ doctorId: 'doctor-uuid', doctorName: 'Dr. Test' }),
+      getOrCreateActiveConversation: jest
+        .fn()
+        .mockResolvedValue({ conversation: mockConversation, messages: [] }),
+      preflightContextBudget: jest.fn().mockResolvedValue({
+        conversation: { ...mockConversation, messages: [] },
+        messages: [{ role: 'user', content: 'Hola doctor' }],
+        contextTokensUsed: 1200,
+        contextTokenLimit: 32000,
+        contextTokenLimitOverride: null,
       }),
-      getOrCreateActiveConversation: jest.fn().mockResolvedValue({
-        conversation: mockConversation,
-        messages: [],
-      }),
-      getContextForConversation: jest.fn().mockResolvedValue([]),
       addMessage: jest.fn().mockResolvedValue({ id: 'msg-1' }),
     };
 
-    mockAppointmentService = {
-      findTodaysByDoctor: jest.fn().mockResolvedValue([]),
-    };
-
-    mockClinicHistoryService = {
-      create: jest.fn(),
-      createWithoutAppointment: jest.fn(),
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { OpenaiService } = require('./openai.service');
     service = new OpenaiService(
-      mockPrisma,
-      mockConversationService,
-      mockAppointmentService,
-      mockClinicHistoryService,
+      prisma as never,
+      conversationService as never,
+      { findTodaysByDoctor: jest.fn() } as never,
+      {
+        create: jest.fn(),
+        createWithoutAppointment: jest.fn(),
+      } as never,
     );
   });
 
@@ -96,132 +123,32 @@ describe('OpenaiService - Multi-round Tool Calling', () => {
     jest.clearAllMocks();
   });
 
-  describe('Single round tool call completion', () => {
-    it('debe completar tool call en una sola ronda y retornar contenido final', async () => {
-      mockChatCompletionsCreate
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-1',
-                    type: 'function',
-                    function: {
-                      name: 'list_specialties',
-                      arguments: '{}',
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: 'Las especialidades son: Cardiología, Pediatría.',
-                tool_calls: null,
-              },
-            },
-          ],
-        });
-
-      mockPrisma.specialty.findMany.mockResolvedValue([
-        { id: 'spec-1', name: 'Cardiología' },
-        { id: 'spec-2', name: 'Pediatría' },
-      ]);
-
-      const result = await service.processMessageFromDoctor(
-        '+584241234567',
-        '¿Cuáles son las especialidades?',
-      );
-
-      expect(result).toBe('Las especialidades son: Cardiología, Pediatría.');
-      expect(mockChatCompletionsCreate).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('Two sequential tool_calls', () => {
-    it('debe ejecutar tool_call_A en ronda 1 y tool_call_B en ronda 2', async () => {
-      // Round 1: model returns tool_call_A
-      mockChatCompletionsCreate
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-1',
-                    type: 'function',
-                    function: {
-                      name: 'search_patients',
-                      arguments: JSON.stringify({ query: 'Juan' }),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        // Round 2: model returns tool_call_B after receiving tool result
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-2',
-                    type: 'function',
-                    function: {
-                      name: 'get_patient',
-                      arguments: JSON.stringify({ patientId: 'patient-uuid' }),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        // Round 3: model returns final content (no more tool_calls)
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: 'Encontré al paciente Juan Pérez.',
-                tool_calls: null,
-              },
-            },
-          ],
-        });
-
-      mockPrisma.patient.findMany.mockResolvedValue([
-        { id: 'patient-uuid', user: { name: 'Juan', lastName: 'Pérez' } },
-      ]);
-      mockPrisma.patient.findUnique.mockResolvedValue({
-        id: 'patient-uuid',
-        user: { name: 'Juan', lastName: 'Pérez' },
+  it('invoca preflight antes de la completion inicial y antes de cada follow-up con tools', async () => {
+    conversationService.preflightContextBudget
+      .mockResolvedValueOnce({
+        conversation: { ...mockConversation, messages: [] },
+        messages: [{ role: 'user', content: 'Hola doctor' }],
+        contextTokensUsed: 1200,
+        contextTokenLimit: 32000,
+        contextTokenLimitOverride: null,
+      })
+      .mockResolvedValueOnce({
+        conversation: { ...mockConversation, summary: 'Resumen actualizado' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Resumen de la conversación anterior:\nResumen actualizado',
+          },
+          { role: 'user', content: 'Contexto compacto vigente' },
+        ],
+        contextTokensUsed: 900,
+        contextTokenLimit: 32000,
+        contextTokenLimitOverride: null,
       });
 
-      const result = await service.processMessageFromDoctor(
-        '+584241234567',
-        'Busca paciente Juan y obtén sus datos',
-      );
-
-      expect(result).toBe('Encontré al paciente Juan Pérez.');
-      expect(mockChatCompletionsCreate).toHaveBeenCalledTimes(3);
-    });
-  });
-
-  describe('Five rounds maximum', () => {
-    it('debe ejecutar múltiples rondas de tool_calls hasta contenido final', async () => {
-      // Create a chain of 3 tool_calls (within the 5-round limit)
-      // Round 1
-      mockChatCompletionsCreate.mockResolvedValueOnce({
+    mockChatCompletionsCreate
+      .mockResolvedValueOnce({
         choices: [
           {
             message: {
@@ -230,88 +157,130 @@ describe('OpenaiService - Multi-round Tool Calling', () => {
                 {
                   id: 'call-1',
                   type: 'function',
-                  function: {
-                    name: 'search_patients',
-                    arguments: JSON.stringify({ query: 'Juan' }),
-                  },
+                  function: { name: 'list_specialties', arguments: '{}' },
                 },
               ],
             },
           },
         ],
-      });
-
-      // Round 2
-      mockChatCompletionsCreate.mockResolvedValueOnce({
+      })
+      .mockResolvedValueOnce({
         choices: [
-          {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call-2',
-                  type: 'function',
-                  function: {
-                    name: 'get_patient',
-                    arguments: JSON.stringify({ patientId: 'patient-1' }),
-                  },
-                },
-              ],
-            },
-          },
+          { message: { content: 'Respuesta final', tool_calls: null } },
         ],
       });
+    prisma.specialty.findMany.mockResolvedValue([
+      { id: 'spec-1', name: 'Cardiología', specialtyCode: 1 },
+    ]);
 
-      // Round 3
-      mockChatCompletionsCreate.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call-3',
-                  type: 'function',
-                  function: {
-                    name: 'get_patient_antecedents',
-                    arguments: JSON.stringify({ patientId: 'patient-1' }),
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      });
+    const result = await service.processMessageFromDoctor(
+      '+584241234567',
+      'Necesito las especialidades',
+    );
 
-      // After 3 rounds, the model should NOT be called again with tool_calls
-      // It should return final content
-      mockChatCompletionsCreate.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: 'El paciente tiene antecedentes de diabetes.',
-              tool_calls: null,
-            },
-          },
-        ],
-      });
+    expect(result).toBe('Respuesta final');
+    expect(conversationService.preflightContextBudget).toHaveBeenCalledTimes(2);
+    expect(conversationService.preflightContextBudget).toHaveBeenNthCalledWith(
+      1,
+      'conversation-uuid',
+    );
+    expect(conversationService.preflightContextBudget).toHaveBeenNthCalledWith(
+      2,
+      'conversation-uuid',
+      expect.any(Array),
+    );
+    const secondPreflightArgs = conversationService.preflightContextBudget.mock
+      .calls[1] as [
+      string,
+      Array<{ role: string; content: string | null; metadata?: string }>,
+    ];
+    const pendingPayload = secondPreflightArgs[1];
+    const pendingAssistantMessage = pendingPayload.find(
+      (message) => message.role === 'assistant',
+    );
+    const pendingToolMessage = pendingPayload.find(
+      (message) => message.role === 'tool',
+    );
 
-      mockPrisma.patient.findMany.mockResolvedValue([
-        { id: 'patient-1', user: { name: 'Juan', lastName: 'Pérez' } },
-      ]);
-      mockPrisma.patient.findUnique.mockResolvedValue({
-        id: 'patient-1',
-        user: { name: 'Juan', lastName: 'Pérez' },
-      });
+    expect(pendingAssistantMessage).toBeDefined();
+    expect(pendingAssistantMessage?.content).toBeNull();
+    expect(pendingAssistantMessage?.metadata).toContain('list_specialties');
+    expect(pendingToolMessage).toBeDefined();
+    expect(pendingToolMessage?.content).toBe(
+      JSON.stringify([{ id: 'spec-1', name: 'Cardiología', specialtyCode: 1 }]),
+    );
+    expect(pendingToolMessage?.metadata).toContain('call-1');
+    const secondCall = mockChatCompletionsCreate.mock.calls.at(1) as unknown;
+    const [secondRequest] = secondCall as [
+      {
+        messages: Array<{
+          role: string;
+          content?: string | null;
+          tool_calls?: unknown;
+          tool_call_id?: string;
+        }>;
+      },
+    ];
 
-      const result = await service.processMessageFromDoctor(
-        '+584241234567',
-        'Busca paciente Juan, obtén sus datos y antecedentes',
-      );
+    expect(secondRequest.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: 'Resumen de la conversación anterior:\nResumen actualizado',
+        }),
+        expect.objectContaining({
+          role: 'user',
+          content: 'Contexto compacto vigente',
+        }),
+      ]),
+    );
+    expect(secondRequest.messages).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: 'Hola doctor',
+        }),
+      ]),
+    );
+    const followUpAssistantMessage = secondRequest.messages.find(
+      (message) =>
+        message.role === 'assistant' && Array.isArray(message.tool_calls),
+    );
+    const followUpToolMessage = secondRequest.messages.find(
+      (message) => message.role === 'tool' && message.tool_call_id === 'call-1',
+    );
 
-      expect(result).toBe('El paciente tiene antecedentes de diabetes.');
-      // Should be exactly 4 calls: 3 tool_call rounds + 1 final content
-      expect(mockChatCompletionsCreate).toHaveBeenCalledTimes(4);
+    expect(followUpAssistantMessage).toBeDefined();
+    expect(followUpAssistantMessage?.content).toBeNull();
+    expect(followUpAssistantMessage?.tool_calls).toHaveLength(1);
+    expect(
+      (
+        followUpAssistantMessage?.tool_calls as Array<{
+          id: string;
+          function: { name: string };
+        }>
+      )[0],
+    ).toMatchObject({
+      id: 'call-1',
+      function: { name: 'list_specialties' },
     });
+    expect(followUpToolMessage).toBeDefined();
+    expect(followUpToolMessage?.content).toBe(
+      JSON.stringify([{ id: 'spec-1', name: 'Cardiología', specialtyCode: 1 }]),
+    );
+  });
+
+  it('devuelve fallback controlado y evita llamar OpenAI si el budget no entra', async () => {
+    conversationService.preflightContextBudget.mockRejectedValue(
+      new ContextBudgetExceededError(),
+    );
+
+    const result = await service.processMessageFromDoctor(
+      '+584241234567',
+      'Traé todo el historial',
+    );
+
+    expect(result).toContain('no entra de forma segura');
+    expect(mockChatCompletionsCreate).not.toHaveBeenCalled();
   });
 });

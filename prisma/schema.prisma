@@ -118,7 +118,7 @@ model Conversation {
   model               String
   systemPrompt        String
   summary             String?
-  contextMessageLimit Int?
+  contextTokenLimitOverride Int?
   lastActivityAt      DateTime  @default(now())
   isActive            Boolean   @default(true)
   createdAt           DateTime  @default(now())

@@ -1,26 +1,26 @@
-import { encoding_for_model } from 'tiktoken';
+import { encoding_for_model, TiktokenModel } from 'tiktoken';
 
-let cachedEncoder: ReturnType<typeof encoding_for_model> | null = null;
+const cachedEncoders = new Map<string, ReturnType<typeof encoding_for_model>>();
 
-function getEncoder() {
-  if (!cachedEncoder) {
-    cachedEncoder = encoding_for_model('gpt-4');
+function getEncoder(model = 'gpt-4') {
+  if (!cachedEncoders.has(model)) {
+    cachedEncoders.set(model, encoding_for_model(model as TiktokenModel));
   }
-  return cachedEncoder;
+
+  return cachedEncoders.get(model)!;
 }
 
-export function countTokens(text: string): number {
-  const encoder = getEncoder();
-  const tokens = encoder.encode(text);
-  return tokens.length;
+export function countTokens(text: string, tokenizerModel = 'gpt-4'): number {
+  const encoder = getEncoder(tokenizerModel);
+  return encoder.encode(text).length;
 }
 
 export function clearEncoderCache(): void {
-  if (cachedEncoder) {
-    cachedEncoder.free();
-    cachedEncoder = null;
+  for (const encoder of cachedEncoders.values()) {
+    encoder.free();
   }
+
+  cachedEncoders.clear();
 }
 
-// Free encoder on process exit to prevent WASM resource leaks
 process.on('exit', () => clearEncoderCache());
