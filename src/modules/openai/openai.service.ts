@@ -12,7 +12,10 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ErrorCode } from 'src/core/responses/problem-details.dto';
 import OpenAI from 'openai';
-import { ConversationService } from './conversation.service';
+import {
+  ContextBudgetExceededError,
+  ConversationService,
+} from './conversation.service';
 import { AppointmentService } from '../appointment/appointment.service';
 import { ClinicHistoryService } from '../clinic-history/clinic-history.service';
 import { CreateClinicHistoryDto } from '../clinic-history/dto/create-clinic-history.dto';
@@ -697,7 +700,7 @@ REGLAS ESTRICTAS:
     const doctorId =
       context?.doctorId ?? (await this.resolveDoctorId(phoneNumber));
 
-    const { conversation, messages: contextMessages } =
+    const { conversation } =
       await this.conversationService.getOrCreateActiveConversation(
         doctorId,
         this.systemPrompt,
@@ -709,14 +712,8 @@ REGLAS ESTRICTAS:
       userMessage,
     );
 
-    const chatMessages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt },
-      ...contextMessages,
-      { role: 'user', content: userMessage },
-    ];
-
     const assistantResponse = await this.sendChatCompletion(
-      chatMessages,
+      conversation.id,
       doctorId,
     );
 
@@ -732,21 +729,9 @@ REGLAS ESTRICTAS:
   async processMessageInConversation(
     doctorId: string,
     conversationId: string,
-    context?: DoctorContext,
   ): Promise<string> {
-    const contextMessages =
-      await this.conversationService.getContextForConversation(
-        conversationId,
-        doctorId,
-      );
-
-    const chatMessages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt },
-      ...contextMessages,
-    ];
-
     const assistantResponse = await this.sendChatCompletion(
-      chatMessages,
+      conversationId,
       doctorId,
     );
 
@@ -769,37 +754,53 @@ REGLAS ESTRICTAS:
   }
 
   private async sendChatCompletion(
-    messages: ChatMessage[],
+    conversationId: string,
     doctorId: string,
   ): Promise<string> {
-    const response = await this.openai.chat.completions.create({
-      model: environment.OPENAI_MODEL,
-      messages: messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      tools: openaiTools,
-      tool_choice: 'auto',
-    });
+    try {
+      const preflight =
+        await this.conversationService.preflightContextBudget(conversationId);
 
-    const assistantMessage = response.choices[0]?.message;
+      const messages: ChatMessage[] = [
+        { role: 'system', content: this.systemPrompt },
+        ...preflight.messages,
+      ];
 
-    if (
-      assistantMessage?.tool_calls &&
-      assistantMessage.tool_calls.length > 0
-    ) {
-      return this.handleToolCalls(assistantMessage, messages, doctorId);
+      const response = await this.openai.chat.completions.create({
+        model: environment.OPENAI_MODEL,
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        tools: openaiTools,
+        tool_choice: 'auto',
+      });
+
+      const assistantMessage = response.choices[0]?.message;
+
+      if (
+        assistantMessage?.tool_calls &&
+        assistantMessage.tool_calls.length > 0
+      ) {
+        return this.handleToolCalls(conversationId, assistantMessage, doctorId);
+      }
+
+      return (
+        assistantMessage?.content ||
+        'No pude procesar tu solicitud. Por favor, intenta de nuevo.'
+      );
+    } catch (error) {
+      if (error instanceof ContextBudgetExceededError) {
+        return 'La conversación actual ya no entra de forma segura en el contexto del modelo. Empezá un hilo nuevo o acotá la consulta.';
+      }
+
+      throw error;
     }
-
-    return (
-      assistantMessage?.content ||
-      'No pude procesar tu solicitud. Por favor, intenta de nuevo.'
-    );
   }
 
   private async handleToolCalls(
+    conversationId: string,
     assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
-    previousMessages: ChatMessage[],
     doctorId: string,
   ): Promise<string> {
     const TOOL_CALL_MAX_ROUNDS = 5;
@@ -811,12 +812,8 @@ REGLAS ESTRICTAS:
     );
 
     // Build messages for follow-up
-    let currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+    let pendingMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
       [
-        ...previousMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
         {
           role: 'assistant' as const,
           content: assistantMessage.content,
@@ -827,6 +824,21 @@ REGLAS ESTRICTAS:
 
     // Loop for multi-round tool calling (max 3 rounds)
     for (let round = 0; round < TOOL_CALL_MAX_ROUNDS; round++) {
+      const preflight = await this.conversationService.preflightContextBudget(
+        conversationId,
+        this.toPendingMessages(pendingMessages),
+      );
+
+      const currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+        [
+          { role: 'system', content: this.systemPrompt },
+          ...preflight.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          ...pendingMessages,
+        ];
+
       const followUpResponse = await this.openai.chat.completions.create({
         model: environment.OPENAI_MODEL,
         messages: currentMessages,
@@ -837,10 +849,11 @@ REGLAS ESTRICTAS:
       const followUpMessage = followUpResponse.choices[0]?.message;
 
       // If no more tool_calls, return the content directly
-      if (!followUpMessage?.tool_calls || followUpMessage.tool_calls.length === 0) {
-        return (
-          followUpMessage?.content || 'Operación completada.'
-        );
+      if (
+        !followUpMessage?.tool_calls ||
+        followUpMessage.tool_calls.length === 0
+      ) {
+        return followUpMessage?.content || 'Operación completada.';
       }
 
       // Execute new tool calls and append results
@@ -850,8 +863,8 @@ REGLAS ESTRICTAS:
       );
 
       // Append assistant message with tool_calls and tool results
-      currentMessages = [
-        ...currentMessages,
+      pendingMessages = [
+        ...pendingMessages,
         {
           role: 'assistant' as const,
           content: followUpMessage.content,
@@ -862,13 +875,70 @@ REGLAS ESTRICTAS:
     }
 
     // Max rounds reached — find last message with non-null content
-    for (let i = currentMessages.length - 1; i >= 0; i--) {
-      const msg = currentMessages[i];
+    for (let i = pendingMessages.length - 1; i >= 0; i--) {
+      const msg = pendingMessages[i];
       if ('content' in msg && typeof msg.content === 'string' && msg.content) {
         return msg.content;
       }
     }
     return 'Operación completada.';
+  }
+
+  private toPendingMessages(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  ): Array<{
+    role: 'user' | 'assistant' | 'system' | 'tool';
+    content: string | null;
+    metadata?: string;
+  }> {
+    return messages.map((message) => {
+      const role =
+        message.role === 'developer' || message.role === 'function'
+          ? 'assistant'
+          : message.role;
+
+      const metadata = this.serializePendingMessageMetadata(message);
+
+      if (typeof message.content === 'string') {
+        return { role, content: message.content, metadata };
+      }
+
+      if (Array.isArray(message.content)) {
+        return {
+          role,
+          content: JSON.stringify(message.content),
+          metadata,
+        };
+      }
+
+      return { role, content: null, metadata };
+    });
+  }
+
+  private serializePendingMessageMetadata(
+    message: OpenAI.Chat.Completions.ChatCompletionMessageParam,
+  ): string | undefined {
+    const payload: Record<string, unknown> = {};
+
+    if ('tool_calls' in message && Array.isArray(message.tool_calls)) {
+      payload.tool_calls = message.tool_calls;
+    }
+
+    if ('tool_call_id' in message && typeof message.tool_call_id === 'string') {
+      payload.tool_call_id = message.tool_call_id;
+    }
+
+    if ('name' in message && typeof message.name === 'string') {
+      payload.name = message.name;
+    }
+
+    if ('refusal' in message && message.refusal != null) {
+      payload.refusal = message.refusal;
+    }
+
+    return Object.keys(payload).length > 0
+      ? JSON.stringify(payload)
+      : undefined;
   }
 
   private async executeToolCalls(
@@ -961,14 +1031,30 @@ REGLAS ESTRICTAS:
         return `object(id=${obj.id})`;
       }
       if ('success' in obj && obj.success === false && 'error' in obj) {
-        return `error(${String(obj.error)})`;
+        return `error(${this.stringifyUnknown(obj.error)})`;
       }
       if ('formattedMessage' in obj) {
         return 'formattedMessage';
       }
       return `object(${Object.keys(obj).length} keys)`;
     }
-    return String(result);
+    return this.stringifyUnknown(result);
+  }
+
+  private stringifyUnknown(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+
+    return '';
   }
 
   private safeParseJsonRecord(json: string): Record<string, unknown> {
@@ -1024,16 +1110,18 @@ REGLAS ESTRICTAS:
         response !== null &&
         'message' in response
           ? Array.isArray((response as { message: unknown }).message)
-            ? String((response as { message: unknown[] }).message[0])
-            : String((response as { message: unknown }).message)
-          : String(response);
+            ? this.stringifyUnknown(
+                (response as { message: unknown[] }).message[0],
+              )
+            : this.stringifyUnknown((response as { message: unknown }).message)
+          : this.stringifyUnknown(response);
       const message = codeMap[code] ?? codeMap[ErrorCode.BAD_REQUEST];
       return { error: code, message };
     }
 
     const errMsg =
       exception && typeof exception === 'object' && 'message' in exception
-        ? String((exception as Error).message)
+        ? this.stringifyUnknown((exception as Error).message)
         : '';
     if (errMsg && codeMap[errMsg]) {
       return { error: errMsg, message: codeMap[errMsg] };
@@ -1187,8 +1275,8 @@ REGLAS ESTRICTAS:
       ? (args.diagnostics as unknown[]).map((d: unknown) => {
           const o = d as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            description: String(o?.description ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            description: this.stringifyUnknown(o?.description),
           };
         })
       : [];
@@ -1196,8 +1284,8 @@ REGLAS ESTRICTAS:
       ? (args.physicalExams as unknown[]).map((p: unknown) => {
           const o = p as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            description: String(o?.description ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            description: this.stringifyUnknown(o?.description),
           };
         })
       : [];
@@ -1205,12 +1293,14 @@ REGLAS ESTRICTAS:
       ? (args.vitalSigns as unknown[]).map((v: unknown) => {
           const o = v as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            value: String(o?.value ?? ''),
-            unit: String(o?.unit ?? ''),
-            measurement: String(o?.measurement ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            value: this.stringifyUnknown(o?.value),
+            unit: this.stringifyUnknown(o?.unit),
+            measurement: this.stringifyUnknown(o?.measurement),
             description:
-              o?.description != null ? String(o.description) : undefined,
+              o?.description != null
+                ? this.stringifyUnknown(o.description)
+                : undefined,
           };
         })
       : [];
@@ -1243,33 +1333,37 @@ REGLAS ESTRICTAS:
         const quantity =
           typeof q === 'number' ? Math.floor(q) : Math.floor(Number(q));
         return {
-          name: String(med.name ?? ''),
+          name: this.stringifyUnknown(med.name),
           quantity: Number.isFinite(quantity) ? quantity : 0,
-          unit: String(med.unit ?? ''),
-          frequency: String(med.frequency ?? ''),
-          duration: String(med.duration ?? ''),
-          indications: String(med.indications ?? ''),
-          administrationRoute: String(med.administrationRoute ?? ''),
+          unit: this.stringifyUnknown(med.unit),
+          frequency: this.stringifyUnknown(med.frequency),
+          duration: this.stringifyUnknown(med.duration),
+          indications: this.stringifyUnknown(med.indications),
+          administrationRoute: this.stringifyUnknown(med.administrationRoute),
           description:
-            med.description != null ? String(med.description) : undefined,
+            med.description != null
+              ? this.stringifyUnknown(med.description)
+              : undefined,
         };
       });
       prescription = {
-        name: String(pr.name ?? ''),
-        description: String(pr.description ?? ''),
+        name: this.stringifyUnknown(pr.name),
+        description: this.stringifyUnknown(pr.description),
         medications: meds,
       };
     }
     const symptoms = Array.isArray(args.symptoms)
-      ? (args.symptoms as unknown[]).map((s: unknown) => String(s ?? ''))
+      ? (args.symptoms as unknown[]).map((s: unknown) =>
+          this.stringifyUnknown(s),
+        )
       : typeof args.symptoms === 'string'
         ? [args.symptoms]
         : [];
     const plain = {
-      appointmentId: String(args.appointmentId ?? ''),
-      consultationReason: String(args.consultationReason ?? ''),
+      appointmentId: this.stringifyUnknown(args.appointmentId),
+      consultationReason: this.stringifyUnknown(args.consultationReason),
       symptoms,
-      treatment: String(args.treatment ?? ''),
+      treatment: this.stringifyUnknown(args.treatment),
       diagnostics,
       physicalExams,
       vitalSigns,
@@ -1299,8 +1393,8 @@ REGLAS ESTRICTAS:
       ? (args.diagnostics as unknown[]).map((d: unknown) => {
           const o = d as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            description: String(o?.description ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            description: this.stringifyUnknown(o?.description),
           };
         })
       : [];
@@ -1308,8 +1402,8 @@ REGLAS ESTRICTAS:
       ? (args.physicalExams as unknown[]).map((p: unknown) => {
           const o = p as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            description: String(o?.description ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            description: this.stringifyUnknown(o?.description),
           };
         })
       : [];
@@ -1317,12 +1411,14 @@ REGLAS ESTRICTAS:
       ? (args.vitalSigns as unknown[]).map((v: unknown) => {
           const o = v as Record<string, unknown>;
           return {
-            name: String(o?.name ?? ''),
-            value: String(o?.value ?? ''),
-            unit: String(o?.unit ?? ''),
-            measurement: String(o?.measurement ?? ''),
+            name: this.stringifyUnknown(o?.name),
+            value: this.stringifyUnknown(o?.value),
+            unit: this.stringifyUnknown(o?.unit),
+            measurement: this.stringifyUnknown(o?.measurement),
             description:
-              o?.description != null ? String(o.description) : undefined,
+              o?.description != null
+                ? this.stringifyUnknown(o.description)
+                : undefined,
           };
         })
       : [];
@@ -1355,25 +1451,29 @@ REGLAS ESTRICTAS:
         const quantity =
           typeof q === 'number' ? Math.floor(q) : Math.floor(Number(q));
         return {
-          name: String(med.name ?? ''),
+          name: this.stringifyUnknown(med.name),
           quantity: Number.isFinite(quantity) ? quantity : 0,
-          unit: String(med.unit ?? ''),
-          frequency: String(med.frequency ?? ''),
-          duration: String(med.duration ?? ''),
-          indications: String(med.indications ?? ''),
-          administrationRoute: String(med.administrationRoute ?? ''),
+          unit: this.stringifyUnknown(med.unit),
+          frequency: this.stringifyUnknown(med.frequency),
+          duration: this.stringifyUnknown(med.duration),
+          indications: this.stringifyUnknown(med.indications),
+          administrationRoute: this.stringifyUnknown(med.administrationRoute),
           description:
-            med.description != null ? String(med.description) : undefined,
+            med.description != null
+              ? this.stringifyUnknown(med.description)
+              : undefined,
         };
       });
       prescription = {
-        name: String(pr.name ?? ''),
-        description: String(pr.description ?? ''),
+        name: this.stringifyUnknown(pr.name),
+        description: this.stringifyUnknown(pr.description),
         medications: meds,
       };
     }
     const symptoms = Array.isArray(args.symptoms)
-      ? (args.symptoms as unknown[]).map((s: unknown) => String(s ?? ''))
+      ? (args.symptoms as unknown[]).map((s: unknown) =>
+          this.stringifyUnknown(s),
+        )
       : typeof args.symptoms === 'string'
         ? [args.symptoms]
         : [];
@@ -1386,9 +1486,9 @@ REGLAS ESTRICTAS:
       ...(useNumbers
         ? { patientNumber, specialtyCode }
         : { patientId, specialtyId }),
-      consultationReason: String(args.consultationReason ?? ''),
+      consultationReason: this.stringifyUnknown(args.consultationReason),
       symptoms,
-      treatment: String(args.treatment ?? ''),
+      treatment: this.stringifyUnknown(args.treatment),
       diagnostics,
       physicalExams,
       vitalSigns,
